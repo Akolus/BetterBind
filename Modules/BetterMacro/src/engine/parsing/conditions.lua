@@ -1,0 +1,316 @@
+-- modifier checks return:
+--  - Parse Result
+--  - Success/Fail (Boolean)
+
+local Colours = GetMegaMacroParsingColourData()
+local GetCharacter, GetWord, ParseResult = GetMegaMacroParsingFunctions()
+
+local MouseButtonNames = {
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "LeftButton",
+    "MiddleButton",
+    "RightButton",
+    "Button4",
+    "Button5"
+}
+
+local ModifierKeyNames = {
+    "alt",
+    "shift",
+    "ctrl",
+    "shiftctrl",
+    "shiftalt",
+    "altctrl",
+    "ctrlalt",
+    "ctrlshift",
+    "altshift",
+    "ctrlshiftalt",
+    "ctrlaltshift",
+    "altshiftctrl",
+    "altctrlshift",
+    "shiftaltctrl",
+    "shiftctrlalt",
+    "AUTOLOOTTOGGLE",
+    "STICKCAMERA",
+    "SPLITSTACK",
+    "PICKUPACTION",
+    "COMPAREITEMS",
+    "OPENALLBAGS",
+    "QUESTWATCHTOGGLE",
+    "SELFCAST"
+}
+
+local function IsNumber(word)
+    local wordLength = #word
+
+    if wordLength == 0 then
+        return false
+    end
+    for i=1, wordLength do
+        if not string.match(string.sub(word, i, i), "[0-9]") then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function IsModifierSeparator(parsingContext)
+    local nextChar = GetCharacter(parsingContext)
+    if nextChar == ":" then
+        return true
+    end
+    return false
+end
+
+local function NoModifier(parsingContext)
+    if IsModifierSeparator(parsingContext) then
+        return "", false
+    end
+    return "", true
+end
+
+local function NumberModifier(parsingContext)
+    local hasModifier = IsModifierSeparator(parsingContext)
+    if hasModifier then
+        local word = GetWord(parsingContext, 1)
+        local wordLength = #word
+        if not IsNumber(word) then
+            return "", false
+        end
+        local result = ParseResult(parsingContext, 1, Colours.Syntax)..ParseResult(parsingContext, wordLength, Colours.Number)
+        return result, true
+    end
+
+    return "", false
+end
+
+local function MultiNumberModifier(parsingContext)
+    local hasModifier = IsModifierSeparator(parsingContext)
+    if hasModifier then
+        local word = GetWord(parsingContext, 1)
+        local wordLength = #word
+
+        -- Check for a single number or a sequence of numbers separated by slashes
+        if word:match("^%d+$") or word:match("%d+(/%d+)$") then
+            local result = ParseResult(parsingContext, 1, Colours.Syntax)..ParseResult(parsingContext, wordLength, Colours.Number)
+            return result, true
+        else
+            return "", false
+        end
+    end
+
+    return "", false
+end
+
+local function OptionalWordModifier(parsingContext)
+    local hasModifier = IsModifierSeparator(parsingContext)
+
+    if hasModifier then
+        local word = GetWord(parsingContext, 1)
+        local wordLength = #word
+        if wordLength == 0 then
+            return "", false
+        end
+        return ParseResult(parsingContext, 1, Colours.Syntax)..ParseResult(parsingContext, wordLength, Colours.String), true
+    else
+        return "", true
+    end
+end
+
+local function RequiredWordModifier(parsingContext)
+    local hasModifier = IsModifierSeparator(parsingContext)
+
+    if hasModifier then
+        local word = GetWord(parsingContext, 1)
+        local wordLength = #word
+        if wordLength == 0 then
+            return "", false
+        end
+        return
+            ParseResult(parsingContext, 1, Colours.Syntax)..
+            ParseResult(parsingContext, wordLength, Colours.String),
+            true
+    else
+        return "", false
+    end
+end
+
+local function GroupModifier(parsingContext)
+    local hasModifier = IsModifierSeparator(parsingContext)
+
+    if hasModifier then
+        local word = GetWord(parsingContext, 1)
+        if word ~= "party" and word ~= "raid" then
+            return "", false
+        end
+        return
+            ParseResult(parsingContext, 1, Colours.Syntax)..
+            ParseResult(parsingContext, #word, Colours.String),
+            true
+    else
+        return "", false
+    end
+end
+
+local function KeyModifier(parsingContext)
+    local hasModifier = IsModifierSeparator(parsingContext)
+
+    if hasModifier then
+        local word = GetWord(parsingContext, 1)
+        for i=1, #ModifierKeyNames do
+            if word == ModifierKeyNames[i] then
+                return
+                    ParseResult(parsingContext, 1, Colours.Syntax)..
+                    ParseResult(parsingContext, #word, Colours.String),
+                    true
+            end
+        end
+
+        return "", false
+    else
+        return "", true
+    end
+end
+
+local function MouseButtonModifier(parsingContext)
+    local hasModifier = IsModifierSeparator(parsingContext)
+
+    if hasModifier then
+        local word = GetWord(parsingContext, 1)
+        for i=1, #MouseButtonNames do
+            if word == MouseButtonNames[i] then
+                return
+                    ParseResult(parsingContext, 1, Colours.Syntax)..
+                    ParseResult(parsingContext, #word, Colours.String),
+                    true
+            end
+        end
+    end
+
+    return "", false
+end
+
+local function TalentModifier(parsingContext)
+    local hasModifier = IsModifierSeparator(parsingContext)
+
+    if hasModifier then
+        local row = GetWord(parsingContext, 1)
+        if not IsNumber(row) then
+            return "", false
+        end
+        local separator = GetCharacter(parsingContext, 1 + #row)
+        if separator ~= "/" then
+            return "", false
+        end
+        local col = GetWord(parsingContext, 1 + #row + 1)
+        if not IsNumber(row) then
+            return "", false
+        end
+        return
+            ParseResult(parsingContext, 1, Colours.Syntax)..
+            ParseResult(parsingContext, #row, Colours.Number)..
+            ParseResult(parsingContext, 1, Colours.Number)..
+            ParseResult(parsingContext, #col, Colours.Number),
+            true
+    else
+        return "", false
+    end
+end
+
+local function KnownModifier(parsingContext)
+    local hasModifier = IsModifierSeparator(parsingContext)
+    if hasModifier then
+        local spell = ""
+        local continue = true
+        -- loop to concat words for multipart spell names i.e. "Whirling Dragon Punch" or "Rain of Fire"
+        -- intentionally not counting commas since the actual blizzard macro code can't deal with commas anyway
+        while continue do
+            spell = spell .. GetWord(parsingContext, 1 + #spell)
+            local separator = GetCharacter(parsingContext, 1 + #spell)
+            if separator ~= " " then
+                continue = false
+                -- if the character after a word is empty or nil, the user is still typing or deleting text
+                if not separator or separator == "" then
+                    break
+                end
+            end
+            if separator ~= "]" and separator ~= "," then
+                spell = spell .. separator
+            end
+        end
+
+        -- spells can be spellIDs or spell names
+        if IsNumber(spell) then
+            return
+            ParseResult(parsingContext, 1, Colours.Syntax)..
+            ParseResult(parsingContext, #spell, Colours.Number),
+            true
+        else
+            return
+            ParseResult(parsingContext, 1, Colours.Syntax)..
+            ParseResult(parsingContext, #spell, Colours.String),
+            true
+        end
+    else
+        return "", false
+    end
+end
+
+local Conditionals = {
+	actionbar = NoModifier,
+	advflyable = NoModifier,
+	bar = NumberModifier,
+	bonusbar = NumberModifier,
+	btn = MouseButtonModifier,
+	button = MouseButtonModifier,
+	canexitvehicle = NoModifier,
+	channeling = NoModifier,
+	channelling = NoModifier,
+	combat = NoModifier,
+	cursor = OptionalWordModifier,
+	dead = NoModifier,
+	equipped = RequiredWordModifier,
+	exists = NoModifier,
+	extrabar = NumberModifier,
+	flyable = NoModifier,
+	flying = NoModifier,
+	form = MultiNumberModifier,
+	group = GroupModifier,
+	harm = NoModifier,
+	help = NoModifier,
+	indoors = NoModifier,
+	mod = KeyModifier,
+	modifier = KeyModifier,
+	mounted = NoModifier,
+	none = NoModifier,
+	outdoors = NoModifier,
+	overridebar = NumberModifier,
+	party = NoModifier,
+	pet = RequiredWordModifier,
+	petbattle = NoModifier,
+	possessbar = NumberModifier,
+	pvptalent = TalentModifier,
+	raid = NoModifier,
+	spec = NumberModifier,
+	stance = MultiNumberModifier,
+	stealth = NoModifier,
+	swimming = NoModifier,
+	talent = TalentModifier,
+	unithasvehicleui = NoModifier,
+	vehicleui = NoModifier,
+	worn = RequiredWordModifier,
+    known = KnownModifier,
+    noknown = KnownModifier,
+	hasbuff   = KnownModifier,   -- re‑use KnownModifier parsing (spell name or ID)
+    hastalent = TalentModifier,  -- same parsing as old talent
+    facing    = NoModifier      -- no extra argument, just a boolean check
+}
+
+function GetMegaMacroParsingConditionsData()
+    return Conditionals
+end

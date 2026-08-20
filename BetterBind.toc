@@ -1,0 +1,59 @@
+## Interface: 120100, 120005, 120001, 120000, 11508, 11507
+## X-Expansion: MAINLINE
+## Title: BetterBind
+## Version: 1.0.1
+## Author: Akolus
+## Notes: Keybinding management with BetterMacro and Icon Browser modules.
+## IconTexture: Interface\AddOns\BetterBind\BetterBindIcon
+## X-Website: https://github.com/Akolus/BetterBind
+## X-Curse-Project-Name: BetterBind
+## OptionalDeps: ElvUI
+## SavedVariables: BindPadVars, MegaMacroConfig, MegaMacroGlobalData
+## SavedVariablesPerCharacter: MegaMacroCharacterData
+
+# BetterBind core. Legacy global names and SavedVariables are retained so
+# existing profiles, slots, macros and keybindings survive the 1.0 upgrade.
+BetterBind.xml
+
+# BetterMacro module (legacy internal API names retained for data compatibility)
+Modules\BetterMacro\src\constants.lua
+Modules\BetterMacro\src\config.lua
+Modules\BetterMacro\src\tooltip-functions.lua
+Modules\BetterMacro\src\better-macro.lua
+Modules\BetterMacro\src\better-macro-icon-navigator.lua
+
+Modules\BetterMacro\src\engine\better-macro-action-bar-engine.lua
+Modules\BetterMacro\src\engine\better-macro-code-info.lua
+Modules\BetterMacro\src\engine\better-macro-icon-evaluator.lua
+Modules\BetterMacro\src\engine\better-macro-engine.lua
+
+Modules\BetterMacro\src\engine\parsing\parsing-functions.lua
+Modules\BetterMacro\src\engine\parsing\colours.lua
+Modules\BetterMacro\src\engine\parsing\conditions.lua
+Modules\BetterMacro\src\engine\better-macro-parser.lua
+
+# BetterMacro window
+Modules\BetterMacro\src\windows\better-macro.window.xml
+Modules\BetterMacro\src\main.lua
+
+# Rebuilt BetterBind window/controller layer
+Core\BetterBindController.lua
+
+# Shared UI and compatibility layer
+Compatibility\Integration.lua
+Compatibility\UI.lua
+Compatibility\PolishFix.lua
+Compatibility\Stage6.lua
+Compatibility\Stage7_5.lua
+Compatibility\Stage8_6.lua
+Compatibility\Stage8_6_1.lua
+Compatibility\Stage8_6_2.lua
+Compatibility\Stage8_6_3.lua
+Compatibility\TitleCleanup.lua
+Compatibility\VisualPolish.lua
+UI\Layout.lua
+Compatibility\BetterBind.lua
+
+# BetterMacro editor and Icon Browser modules
+Modules\BetterMacro\Editor.lua
+Modules\IconBrowser\IconBrowser.lua
