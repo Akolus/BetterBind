@@ -379,6 +379,23 @@ function BPMM:InitializeStyle()
                 end
             end
         end)
+
+        local function RefreshUpdateFrameVisibility()
+            local shown=(BindPadFrame and BindPadFrame:IsShown())
+                or (MegaMacro_Frame and MegaMacro_Frame:IsShown())
+            elapsed=0
+            if shown then updateFrame:Show() else updateFrame:Hide() end
+        end
+
+        if BindPadFrame then
+            BindPadFrame:HookScript("OnShow",RefreshUpdateFrameVisibility)
+            BindPadFrame:HookScript("OnHide",RefreshUpdateFrameVisibility)
+        end
+        if MegaMacro_Frame then
+            MegaMacro_Frame:HookScript("OnShow",RefreshUpdateFrameVisibility)
+            MegaMacro_Frame:HookScript("OnHide",RefreshUpdateFrameVisibility)
+        end
+        RefreshUpdateFrameVisibility()
     end
 end
 end

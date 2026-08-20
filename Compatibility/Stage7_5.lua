@@ -294,6 +294,31 @@ dragWatcher:SetScript("OnUpdate", function(_, dt)
     end
 end)
 
+local function RefreshDragWatcherVisibility()
+    local shown=(BindPadFrame and BindPadFrame:IsShown())
+        or (MegaMacro_Frame and MegaMacro_Frame:IsShown())
+    elapsed=0
+    if shown then
+        dragWatcher:Show()
+    else
+        dragWatcher:Hide()
+        lastCursorMegaId=nil
+        if BindPadFrame and BindPadFrame.__BPMM71DropGlow then
+            BindPadFrame.__BPMM71DropGlow:Hide()
+        end
+    end
+end
+
+if BindPadFrame then
+    BindPadFrame:HookScript("OnShow", RefreshDragWatcherVisibility)
+    BindPadFrame:HookScript("OnHide", RefreshDragWatcherVisibility)
+end
+if MegaMacro_Frame then
+    MegaMacro_Frame:HookScript("OnShow", RefreshDragWatcherVisibility)
+    MegaMacro_Frame:HookScript("OnHide", RefreshDragWatcherVisibility)
+end
+RefreshDragWatcherVisibility()
+
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.2 — 2026-08-20
+
+- Suspended BetterMacro evaluation while every addon window is closed.
+- Suspended linked-drag, release, cursor-feedback, and style watchers while
+  their corresponding windows are closed.
+- Preserved full per-frame updates while BetterBind, BetterMacro, or Icon
+  Browser is open.
+
 ## 1.0.1 — 2026-08-18
 
 - Fixed BetterMacro editor clicks always placing the caret at the end.

@@ -63,6 +63,20 @@ f:RegisterEvent("PLAYER_LEAVING_WORLD")
 f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 f:RegisterEvent("PLAYER_TARGET_CHANGED")
 
+-- All per-frame work in this module feeds BetterBind's windows. Blizzard owns
+-- the live action-bar visuals (UseNativeActionBar is forced on in config.lua),
+-- so there is nothing to poll while every addon window is closed.
+local UpdateWindowNames = {
+    "BindPadFrame",
+    "BindPadBindFrame",
+    "BindPadMacroPopupFrame",
+    "BindPadMacroFrame",
+    "BindPadDialogFrame",
+    "MegaMacro_Frame",
+    "MegaMacro_PopupFrame",
+}
+local UpdateVisibilityHooksInstalled = false
+
 local function OnUpdate(_, elapsed)
     MegaMacroSystemTime = GetTime()
     local elapsedMs = elapsed * 1000
@@ -75,6 +89,39 @@ local function OnUpdate(_, elapsed)
     -- combat values such as GetActionCount().
     if not MegaMacroConfig['UseNativeActionBar'] then
         MegaMacroActionBarEngine.OnUpdate(elapsed)
+    end
+end
+
+local function IsAnyUpdateWindowShown()
+    for _, name in ipairs(UpdateWindowNames) do
+        local frame = _G[name]
+        if frame and frame:IsShown() then
+            return true
+        end
+    end
+    return false
+end
+
+local function RefreshUpdateState()
+    if IsAnyUpdateWindowShown() then
+        if f:GetScript("OnUpdate") ~= OnUpdate then
+            f:SetScript("OnUpdate", OnUpdate)
+        end
+    else
+        f:SetScript("OnUpdate", nil)
+    end
+end
+
+local function InstallUpdateVisibilityHooks()
+    if UpdateVisibilityHooksInstalled then return end
+    UpdateVisibilityHooksInstalled = true
+
+    for _, name in ipairs(UpdateWindowNames) do
+        local frame = _G[name]
+        if frame then
+            frame:HookScript("OnShow", RefreshUpdateState)
+            frame:HookScript("OnHide", RefreshUpdateState)
+        end
     end
 end
 
@@ -106,7 +153,8 @@ local function Initialize()
         MegaMacroEngine.ImportMacros()
         MegaMacroEngine.VerifyMacros()
         MegaMacroFullyActive = MegaMacroGlobalData.Activated and MegaMacroCharacterData.Activated
-        f:SetScript("OnUpdate", OnUpdate)
+        InstallUpdateVisibilityHooks()
+        RefreshUpdateState()
     end
 end
 

@@ -188,6 +188,21 @@ bindWatch:SetScript("OnUpdate", function()
         EndLinkedDrag(BindPadFrame, "BindPad", MegaMacro_Frame)
     end
 end)
+
+local function RefreshBindWatchVisibility()
+    if BindPadFrame and BindPadFrame:IsShown() then
+        bindWatch:Show()
+    else
+        bindDragging = false
+        bindWatch:Hide()
+    end
+end
+
+if BindPadFrame then
+    BindPadFrame:HookScript("OnShow", RefreshBindWatchVisibility)
+    BindPadFrame:HookScript("OnHide", RefreshBindWatchVisibility)
+end
+RefreshBindWatchVisibility()
 -- ============================================================
 -- Settings panel
 -- ============================================================
@@ -1853,6 +1868,21 @@ bindReleaseWatcher:SetScript("OnUpdate", function()
     end
     wasDown = down and true or false
 end)
+
+local function RefreshBindReleaseWatcherVisibility()
+    if BindPadFrame and BindPadFrame:IsShown() then
+        bindReleaseWatcher:Show()
+    else
+        wasDown = false
+        bindReleaseWatcher:Hide()
+    end
+end
+
+if BindPadFrame then
+    BindPadFrame:HookScript("OnShow", RefreshBindReleaseWatcherVisibility)
+    BindPadFrame:HookScript("OnHide", RefreshBindReleaseWatcherVisibility)
+end
+RefreshBindReleaseWatcherVisibility()
 
 -- ---------------------------------------------------------------------------
 -- Extend the scrollable retired settings UI panel
