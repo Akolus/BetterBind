@@ -19,6 +19,31 @@ local QUESTION_MARK = tonumber(_G.MegaMacroTexture) or 134400
 local refreshing = false
 local refreshAgain = false
 
+local function GetSelectedSlot()
+    local button = BindPadCore.selectedSlotButton
+    if not button or type(button.GetID) ~= "function" then return nil end
+
+    local slot = BindPadCore.GetSlotInfo(button:GetID())
+    if slot ~= BindPadCore.selectedSlot or not slot or not slot.type or not slot.action then
+        return nil
+    end
+    return slot, button
+end
+
+local function UpdateDeleteButton()
+    local button = _G.BetterBind_DeleteButton
+    if not button then return end
+
+    if GetSelectedSlot() then
+        button:Enable()
+    else
+        button:Disable()
+    end
+end
+
+Controller.GetSelectedSlot = GetSelectedSlot
+Controller.UpdateDeleteButton = UpdateDeleteButton
+
 local function IsTexture(value)
     return (type(value) == "number" and value > 0)
         or (type(value) == "string" and value ~= "")
@@ -179,7 +204,75 @@ local function RenderSlot(button)
         button.hotkey:SetText("")
         button.border:Hide()
     end
+
+    if button == BindPadCore.selectedSlotButton then
+        UpdateDeleteButton()
+    end
 end
+
+local function ClearSelectedSlot(hideSubFrames)
+    local oldButton = BindPadCore.selectedSlotButton
+    if hideSubFrames then BindPadCore.HideSubFrames() end
+    BindPadCore.selectedSlot = nil
+    BindPadCore.selectedSlotButton = nil
+    if oldButton then RenderSlot(oldButton) end
+    UpdateDeleteButton()
+end
+
+Controller.ClearSelectedSlot = ClearSelectedSlot
+
+function Controller.DeleteSelectedSlot()
+    local slot, button = GetSelectedSlot()
+    if not slot then
+        UpdateDeleteButton()
+        return false
+    end
+    if InCombatLockdown() then
+        BindPadFrame_OutputText("The selected icon cannot be deleted during combat.")
+        return false
+    end
+
+    -- Keep the selection alive while the binding API runs: ManuallySetBinding
+    -- uses selectedSlot to preserve general/character profile ownership.
+    BindPadCore.HideSubFrames()
+    slot, button = GetSelectedSlot()
+    if not slot then
+        UpdateDeleteButton()
+        return false
+    end
+    BindPadCore.UnbindSlot(slot)
+    if slot.name then BindPadCore.DeleteBindPadMacroID(slot) end
+    table.wipe(slot)
+
+    BindPadCore.selectedSlot = nil
+    BindPadCore.selectedSlotButton = nil
+    RenderSlot(button)
+    UpdateDeleteButton()
+    return true
+end
+
+function Controller.RequestDeleteSelectedSlot()
+    if not GetSelectedSlot() then
+        UpdateDeleteButton()
+        return false
+    end
+    if InCombatLockdown() then
+        BindPadFrame_OutputText("The selected icon cannot be deleted during combat.")
+        return false
+    end
+    StaticPopup_Show("CONFIRM_DELETE_SELECTED_BETTERBIND_SLOT")
+    return true
+end
+
+StaticPopupDialogs["CONFIRM_DELETE_SELECTED_BETTERBIND_SLOT"] = {
+    text = "Delete the selected BetterBind icon and remove its key binding?",
+    button1 = OKAY,
+    button2 = CANCEL,
+    OnAccept = function() Controller.DeleteSelectedSlot() end,
+    timeout = 0,
+    whileDead = 1,
+    showAlert = 1,
+}
 
 function BindPadSlot_UpdateState(button)
     RenderSlot(button)
@@ -203,6 +296,7 @@ function BindPadSlot_OnClick(button, mouseButton)
         BindPadCore.HideSubFrames()
         BindPadCore.selectedSlot = BindPadCore.GetSlotInfo(button:GetID())
         BindPadCore.selectedSlotButton = button
+        UpdateDeleteButton()
         BindPadBindFrame_Update()
         BindPadBindFrame:Show()
     end
@@ -310,7 +404,14 @@ function Controller.Refresh()
 end
 
 function BindPadFrame_OnShow()
+    ClearSelectedSlot(true)
     Controller.Refresh()
+end
+
+local OriginalBindPadFrameOnHide = BindPadFrame_OnHide
+function BindPadFrame_OnHide(frame)
+    if OriginalBindPadFrameOnHide then OriginalBindPadFrameOnHide(frame) end
+    ClearSelectedSlot(false)
 end
 
 local function SelectTab(tab)
@@ -325,6 +426,7 @@ local function SelectTab(tab)
         LoadBindings(2)
         BindPadCore.SaveBindings(2)
     end
+    ClearSelectedSlot(true)
     BindPadVars.tab = tab
     Controller.Refresh()
     return true
@@ -342,6 +444,7 @@ function BindPadProfileTab_OnClick(button)
         if BindPadVars.tab == FIRST_TAB and profile ~= BindPadCore.GetCurrentProfileNum() then
             if not SelectTab(2) then return end
         end
+        ClearSelectedSlot(true)
         BindPadCore.SwitchProfile(profile)
         Controller.Refresh()
         BindPadProfileTab_OnEnter(button)
@@ -349,6 +452,7 @@ function BindPadProfileTab_OnClick(button)
 end
 
 local function AdjustSlots(direction)
+    ClearSelectedSlot(true)
     local tabInfo = BindPadCore.GetTabInfo(BindPadVars.tab)
     local current = tonumber(tabInfo.numSlot) or SLOT_INCREMENT
     tabInfo.numSlot = math.max(SLOT_INCREMENT, current + direction * SLOT_INCREMENT)

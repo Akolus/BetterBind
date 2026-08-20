@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.3 — 2026-08-20
+
+- Added a bottom-left Delete button to the BetterBind window.
+- Added confirmation before removing the selected BetterBind icon.
+- Removed the deleted slot's key binding without deleting its underlying spell,
+  item, native macro, or BetterMacro macro.
+- Disabled deletion when no populated BetterBind slot is selected and prevented
+  deletion during combat.
+
 ## 1.0.2 — 2026-08-20
 
 - Suspended BetterMacro evaluation while every addon window is closed.

@@ -26,6 +26,7 @@ local MM_ICON,MM_X_GAP,MM_COLS,MM_ROWS=50,7,12,4
 local SLOT_CONTROL_SIZE=36
 local SLOT_CONTROL_GLYPH=22
 local SLOT_CONTROL_THICKNESS=5
+local StyleGoalButton
 
 local function GetAppearance(group,defaultSpacing)
     if _G.BetterBindAppearance_Get then
@@ -701,6 +702,41 @@ local function LayoutBindPadLower()
     footer:SetHeight(65)
     footer:SetFrameLevel(math.max(0,frame:GetFrameLevel()-1))
 
+    local delete=_G.BetterBind_DeleteButton
+    if not delete then
+        delete=CreateFrame("Button","BetterBind_DeleteButton",frame,"UIPanelButtonTemplate")
+        delete:SetScript("OnClick",function()
+            PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+            if _G.BetterBindController
+                and type(BetterBindController.RequestDeleteSelectedSlot)=="function"
+            then
+                BetterBindController.RequestDeleteSelectedSlot()
+            end
+        end)
+        delete:SetScript("OnEnter",function(self)
+            GameTooltip:SetOwner(self,"ANCHOR_RIGHT")
+            GameTooltip:SetText(
+                "Delete the selected BetterBind icon and remove its key binding.",
+                nil,nil,nil,nil,true
+            )
+            GameTooltip:Show()
+        end)
+        delete:SetScript("OnLeave",function() GameTooltip:Hide() end)
+    end
+    delete:SetParent(frame)
+    delete:SetSize(84,32)
+    delete:ClearAllPoints()
+    delete:SetPoint("BOTTOMLEFT",frame,"BOTTOMLEFT",12,8)
+    delete:SetFrameLevel(footer:GetFrameLevel()+5)
+    StyleGoalButton(delete,"Delete",true)
+    if _G.BetterBindController
+        and type(BetterBindController.UpdateDeleteButton)=="function"
+    then
+        BetterBindController.UpdateDeleteButton()
+    else
+        delete:Disable()
+    end
+
     local utilities={
         _G.BindPadFrameOpenSpellBookButton,
         _G.BindPadFrameOpenMacroButton,
@@ -728,8 +764,8 @@ local function LayoutBindPadLower()
             SetFontSize(label,11)
         end
     end
-    check(_G.BindPadFrameSaveAllKeysButton,18,118)
-    check(_G.BindPadFrameShowHotkeyButton,270,118)
+    check(_G.BindPadFrameSaveAllKeysButton,112,118)
+    check(_G.BindPadFrameShowHotkeyButton,300,118)
     if _G.BindPadFrameCharacterButton then BindPadFrameCharacterButton:Hide() end
 end
 
@@ -852,7 +888,7 @@ local function LayoutMegaMacroGrid()
     EnsureMegaMacroSlotControls()
 end
 
-local function StyleGoalButton(button,text,danger)
+StyleGoalButton=function(button,text,danger)
     if not button then return end
 
     -- Locate is a custom Button with its own FontString while the other

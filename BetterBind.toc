@@ -1,7 +1,7 @@
 ## Interface: 120100, 120005, 120001, 120000, 11508, 11507
 ## X-Expansion: MAINLINE
 ## Title: BetterBind
-## Version: 1.0.2
+## Version: 1.0.3
 ## Author: Akolus
 ## Notes: Keybinding management with BetterMacro and Icon Browser modules.
 ## IconTexture: Interface\AddOns\BetterBind\BetterBindIcon
