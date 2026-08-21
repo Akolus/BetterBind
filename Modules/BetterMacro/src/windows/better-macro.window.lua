@@ -557,7 +557,6 @@ MegaMacroWindow = {
 	Show = function()
 		if MegaMacroConfig_IsWindowDialog() then
 			MegaMacro_Frame:SetMovable(false)
-			if MegaMacro_ToggleWindowModeButton then MegaMacro_ToggleWindowModeButton:SetText("Unlock") end
 			ShowUIPanel(MegaMacro_Frame)
 		else
 			local relativePoint, x, y = MegaMacroConfig_GetWindowPosition()
@@ -565,7 +564,6 @@ MegaMacroWindow = {
 			MegaMacro_Frame:SetSize(722, 696)
 			MegaMacro_Frame:ClearAllPoints()
 			MegaMacro_Frame:SetPoint(relativePoint, UIParent, relativePoint, x, y)
-			if MegaMacro_ToggleWindowModeButton then MegaMacro_ToggleWindowModeButton:SetText("Lock") end
 			MegaMacro_Frame:Show()
 		end
 	end,
@@ -877,19 +875,6 @@ end
 
 function MegaMacro_PopupButton_OnLeave()
 	GameTooltip:Hide()
-end
-
-function MegaMacro_ToggleWindowModeButton_OnClick()
-	if MegaMacroConfig_IsWindowDialog() then
-		local _, _, relativePoint, x, y = MegaMacro_Frame:GetPoint()
-		MegaMacroGlobalData.WindowInfo = { IsDialog = false, RelativePoint = relativePoint, X = x, Y = y }
-	else
-		MegaMacroGlobalData.WindowInfo = nil
-	end
-	MegaMacroWindowTogglingMode = true
-	HideUIPanel(MegaMacro_Frame)
-	MegaMacroWindow.Show()
-	MegaMacroWindowTogglingMode = false
 end
 
 function MegaMacro_FallbackTextureCheckBox_OnClick()

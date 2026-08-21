@@ -1050,6 +1050,157 @@ StyleGoalButton=function(button,text,danger)
     ApplyFont()
 end
 
+local function FindTextRegion(frame,text)
+    if not frame or not text then return end
+    for _,region in ipairs({frame:GetRegions()}) do
+        if region and region.GetObjectType
+            and region:GetObjectType()=="FontString"
+            and region.GetText and region:GetText()==text
+        then
+            return region
+        end
+    end
+end
+
+local function EnsureKeybindingText(overlay,key,fontObject)
+    local text=overlay[key]
+    if not text then
+        text=overlay:CreateFontString(nil,"OVERLAY",fontObject or "GameFontHighlight")
+        overlay[key]=text
+    end
+    text:Show()
+    text:SetAlpha(1)
+    return text
+end
+
+local function LayoutKeybindingDialog()
+    local frame=_G.BindPadBindFrame
+    if not frame then return end
+
+    frame:SetSize(600,200)
+    if frame.SetBackdrop then frame:SetBackdrop(nil) end
+    HideTextureRegions(frame)
+
+    local shell=frame.__BPMMGoalBindShell
+    if not shell then
+        shell=CreateFrame("Frame",nil,frame,"BackdropTemplate")
+        shell:SetAllPoints(frame)
+        shell:SetFrameLevel(math.max(0,frame:GetFrameLevel()-1))
+        shell:EnableMouse(false)
+        frame.__BPMMGoalBindShell=shell
+    end
+    Backdrop(shell,C.shell,C.border)
+    shell:Show()
+
+    -- The dialog is intentionally one uninterrupted rectangle.  Older
+    -- revisions created separate title, content, and footer backdrop frames;
+    -- those child frames also rendered above the native text regions.
+    HideObject(frame.__BPMMGoalBindTitleBar)
+    HideObject(frame.__BPMMGoalBindContent)
+    HideObject(frame.__BPMMGoalBindFooter)
+
+    HideObject(_G.BindPadBindFrameHeader)
+    local nativeTitle=_G.BindPadBindFrameHeaderText
+    local nativePress=FindTextRegion(frame,_G.BINDPAD_TEXT_PRESSKEY)
+    local nativeAction=_G.BindPadBindFrameAction
+    local nativeKey=_G.BindPadBindFrameKey
+    HideObject(nativeTitle)
+    HideObject(nativePress)
+    HideObject(nativeAction)
+    HideObject(nativeKey)
+
+    -- Native XML font strings are regions of BindPadBindFrame and therefore
+    -- render below any child backdrop created by another compatibility layer.
+    -- Mirror their live values onto a high-level, texture-free overlay so the
+    -- instructions remain readable regardless of load order.
+    local textOverlay=frame.__BPMMGoalBindTextOverlay
+    if not textOverlay then
+        textOverlay=CreateFrame("Frame",nil,frame)
+        textOverlay:SetAllPoints(frame)
+        textOverlay:EnableMouse(false)
+        frame.__BPMMGoalBindTextOverlay=textOverlay
+    end
+    textOverlay:SetFrameLevel(frame:GetFrameLevel()+20)
+    textOverlay:Show()
+
+    local title=EnsureKeybindingText(textOverlay,"title","GameFontHighlight")
+    title:ClearAllPoints()
+    title:SetPoint("TOP",frame,"TOP",0,-11)
+    title:SetText(_G.BINDPAD_KEYBINDINGS_TITLE or "Keybinding")
+    title:SetTextColor(unpack(C.text))
+    SetFontSize(title,14)
+
+    local press=EnsureKeybindingText(textOverlay,"press","GameFontHighlight")
+    press:ClearAllPoints()
+    press:SetPoint("TOP",frame,"TOP",0,-50)
+    press:SetText(_G.BINDPAD_TEXT_PRESSKEY or "Press a key to bind")
+    press:SetTextColor(unpack(C.text))
+    SetFontSize(press,12)
+
+    local action=EnsureKeybindingText(textOverlay,"action","GameFontNormalLarge")
+    action:ClearAllPoints()
+    action:SetPoint("TOP",frame,"TOP",0,-76)
+    action:SetWidth(540)
+    action:SetJustifyH("CENTER")
+    action:SetText(nativeAction and nativeAction:GetText() or "")
+    action:SetTextColor(unpack(C.yellow))
+    SetFontSize(action,15)
+
+    local key=EnsureKeybindingText(textOverlay,"key","GameFontHighlight")
+    key:ClearAllPoints()
+    key:SetPoint("TOP",frame,"TOP",0,-106)
+    key:SetText(nativeKey and nativeKey:GetText() or "")
+    key:SetTextColor(unpack(C.text))
+    SetFontSize(key,12)
+
+    local forAll=_G.BindPadBindFrameForAllCharacterButton
+    if forAll then
+        forAll:SetSize(36,36)
+        forAll:ClearAllPoints()
+        forAll:SetPoint("BOTTOMLEFT",frame,"BOTTOMLEFT",8,6)
+        forAll:SetHitRectInsets(0,-130,0,0)
+        forAll:SetFrameLevel(frame:GetFrameLevel()+5)
+        StyleUtilityToggle(forAll)
+        local label=_G[(forAll:GetName() or "").."Text"]
+        if label then
+            label:ClearAllPoints()
+            label:SetPoint("LEFT",forAll,"RIGHT",7,0)
+            label:SetWidth(130)
+            label:SetJustifyH("LEFT")
+            label:SetTextColor(unpack(C.text))
+            SetFontSize(label,11)
+        end
+    end
+
+    local exit=_G.BindPadBindFrameExitButton
+    if exit then
+        exit:SetSize(88,30)
+        exit:ClearAllPoints()
+        exit:SetPoint("BOTTOMRIGHT",frame,"BOTTOMRIGHT",-10,9)
+        exit:SetFrameLevel(frame:GetFrameLevel()+5)
+        StyleGoalButton(exit,"Exit",false)
+    end
+
+    local unbind=_G.BindPadBindFrameUnbindButton
+    if unbind and exit then
+        unbind:SetSize(88,30)
+        unbind:ClearAllPoints()
+        unbind:SetPoint("RIGHT",exit,"LEFT",-8,0)
+        unbind:SetFrameLevel(frame:GetFrameLevel()+5)
+        StyleGoalButton(unbind,"Unbind",true)
+    end
+
+    local close=_G.BindPadBindFrameCloseButton
+    if close then
+        close:ClearAllPoints()
+        close:SetPoint("TOPRIGHT",frame,"TOPRIGHT",-5,-5)
+        close:SetFrameLevel(frame:GetFrameLevel()+5)
+        if close.__BPMMCleanClose then
+            close.__BPMMCleanClose.art:SetFrameLevel(close:GetFrameLevel()+1)
+        end
+    end
+end
+
 local function HideNativeMegaTitle()
     local frame=_G.MegaMacro_Frame
     if not frame then return end
@@ -1243,6 +1394,7 @@ Goal.ApplyMegaMacroFooter=LayoutMegaMacroFooter
 Goal.ApplyBindPadLower=LayoutBindPadLower
 Goal.ApplyBindPadGrid=LayoutBindPadGrid
 Goal.ApplyMegaMacroGrid=LayoutMegaMacroGrid
+Goal.ApplyKeybindingDialog=LayoutKeybindingDialog
 Goal.HideLegacyBorders=HideLegacyBorders
 
 function Goal.ApplyTitles()
@@ -1309,6 +1461,7 @@ end
 function Goal.Apply()
     LayoutBindPad()
     LayoutMegaMacro()
+    LayoutKeybindingDialog()
     HideLegacyBorders()
     Goal.ApplyTitles()
 end
@@ -1333,6 +1486,19 @@ if type(_G.BindPadFrame_OnShow)=="function" then
     hooksecurefunc("BindPadFrame_OnShow",ApplyBindPadNow)
 elseif _G.BindPadFrame then
     BindPadFrame:HookScript("OnShow",ApplyBindPadNow)
+end
+if _G.BindPadBindFrame then
+    BindPadBindFrame:HookScript("OnShow",function()
+        LayoutKeybindingDialog()
+        C_Timer.After(0,LayoutKeybindingDialog)
+    end)
+end
+if type(_G.BindPadBindFrame_Update)=="function" then
+    hooksecurefunc("BindPadBindFrame_Update",function()
+        if _G.BindPadBindFrame and BindPadBindFrame:IsShown() then
+            LayoutKeybindingDialog()
+        end
+    end)
 end
 if _G.MegaMacro_Frame then
     MegaMacro_Frame:HookScript("OnShow",function()

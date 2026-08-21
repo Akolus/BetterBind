@@ -130,15 +130,6 @@
 			</Layer>
 		</Layers>
 		<Frames>
-			<Button name="MegaMacro_ToggleWindowModeButton" frameStrata="HIGH" inherits="UIPanelButtonTemplate" text="{lock/unlock}">
-				<Size x="80" y="22"/>
-				<Anchors>
-					<Anchor point="TOPRIGHT" relativeTo="MegaMacro_Frame" relativePoint="TOPRIGHT" x="-21" y="1"/>
-				</Anchors>
-				<Scripts>
-					<OnClick>MegaMacro_ToggleWindowModeButton_OnClick();</OnClick>
-				</Scripts>
-			</Button>
 			<CheckButton name="MegaMacro_FrameSelectedMacroButton" frameStrata="HIGH" inherits="MegaMacro_ButtonTemplate" id="0">
 				<Anchors>
 					<Anchor point="TOPLEFT" relativeTo="MegaMacro_FrameSelectedMacroBackground" x="14" y="-14"/>

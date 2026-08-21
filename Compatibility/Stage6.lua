@@ -75,7 +75,12 @@ local function ResetUISettings()
 
     ApplyScale()
     ResetWindowPosition(BindPadFrame)
-    ResetWindowPosition(MegaMacro_Frame)
+    if BindPadFrame and MegaMacro_Frame then
+        MegaMacro_Frame:ClearAllPoints()
+        MegaMacro_Frame:SetPoint("TOPLEFT",BindPadFrame,"TOPRIGHT",4,0)
+    else
+        ResetWindowPosition(MegaMacro_Frame)
+    end
 
     if BPMMSettingsPanel and BPMMSettingsPanel.Refresh then
         BPMMSettingsPanel:Refresh()
@@ -1821,7 +1826,11 @@ local function ResetPositions()
 
     if MegaMacro_Frame then
         MegaMacro_Frame:ClearAllPoints()
-        MegaMacro_Frame:SetPoint("CENTER", UIParent, "CENTER", 310, 0)
+        if BindPadFrame then
+            MegaMacro_Frame:SetPoint("TOPLEFT",BindPadFrame,"TOPRIGHT",4,0)
+        else
+            MegaMacro_Frame:SetPoint("CENTER", UIParent, "CENTER", 310, 0)
+        end
     end
 end
 
@@ -2057,18 +2066,14 @@ local function AlignMainWindows()
         return
     end
 
-    local bindRight=BindPadFrame:GetRight()
-    local bindTop=BindPadFrame:GetTop()
-    if not bindRight or not bindTop then return end
-
-    local uiScale=UIParent:GetEffectiveScale()
-    if not uiScale or uiScale==0 then uiScale=1 end
-    local gap=4/uiScale
-
+    -- Keep BetterMacro genuinely attached to BetterBind instead of copying
+    -- BetterBind's current screen coordinates. Blizzard may reposition its
+    -- managed UI panels when the spellbook or another left-side panel opens;
+    -- a relative anchor makes BetterMacro follow that movement automatically.
     MegaMacro_Frame:ClearAllPoints()
     MegaMacro_Frame:SetPoint(
-        "TOPLEFT",UIParent,"BOTTOMLEFT",
-        bindRight+gap,bindTop
+        "TOPLEFT",BindPadFrame,"TOPRIGHT",
+        4,0
     )
 
     if type(_G.BPMM_SaveWindowPoint)=="function" then
@@ -2080,6 +2085,23 @@ end
 local function QueueMainWindowAlignment()
     C_Timer.After(0,AlignMainWindows)
     C_Timer.After(.05,AlignMainWindows)
+end
+
+local anchorHooksInstalled=false
+local function InstallWindowAnchorHooks()
+    if anchorHooksInstalled then return end
+    anchorHooksInstalled=true
+
+    local function ReanchorIfPaired()
+        if BindPadFrame and BindPadFrame:IsShown()
+            and MegaMacro_Frame and MegaMacro_Frame:IsShown()
+        then
+            QueueMainWindowAlignment()
+        end
+    end
+
+    if BindPadFrame then BindPadFrame:HookScript("OnShow",ReanchorIfPaired) end
+    if MegaMacro_Frame then MegaMacro_Frame:HookScript("OnShow",ReanchorIfPaired) end
 end
 
 _G.BPMM_AlignMainWindows=AlignMainWindows
@@ -2130,9 +2152,11 @@ end
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
 f:SetScript("OnEvent", function()
+    InstallWindowAnchorHooks()
     C_Timer.After(.35, InstallWrapper)
 end)
 
+InstallWindowAnchorHooks()
 C_Timer.After(0, InstallWrapper)
 end
 -- END CONSOLIDATED: BehaviorSlashFix.lua

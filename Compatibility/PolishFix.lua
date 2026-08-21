@@ -73,6 +73,14 @@ local function MakeCleanClose(frame)
             end
         end)
     end
+
+    local clean=button.__BPMMCleanClose
+    if clean then
+        clean.art:SetFrameLevel(button:GetFrameLevel()+1)
+        clean.art:Show()
+        clean.line1:Show()
+        clean.line2:Show()
+    end
 end
 
 local function HideScrollbarArrows()
@@ -128,6 +136,7 @@ end
 local function Refresh()
     MakeCleanClose(BindPadFrame)
     MakeCleanClose(MegaMacro_Frame)
+    MakeCleanClose(BindPadBindFrame)
     HideScrollbarArrows()
     RefreshProfileAppearance()
 end
@@ -151,5 +160,11 @@ end
 if MegaMacro_Frame then
     MegaMacro_Frame:HookScript("OnShow",function()
         C_Timer.After(0,Refresh)
+    end)
+end
+
+if BindPadBindFrame then
+    BindPadBindFrame:HookScript("OnShow",function()
+        MakeCleanClose(BindPadBindFrame)
     end)
 end

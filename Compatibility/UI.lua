@@ -306,7 +306,6 @@ local function SkinMegaMacro()
     end
 
     for _,name in ipairs({
-        "MegaMacro_ToggleWindowModeButton",
         "MegaMacro_FrameSaveButton",
         "MegaMacro_FrameDeleteButton",
         "MegaMacro_FrameExitButton",
@@ -618,7 +617,6 @@ local function PolishMegaMacro()
 
     for _,name in ipairs({
         "MegaMacro_FrameSaveButton",
-        "MegaMacro_ToggleWindowModeButton",
         "MegaMacro_PopupOkayButton",
         "MegaMacro_PopupCancelButton",
     }) do SkinButton(_G[name],false) end

@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.4 — 2026-08-21
+
+- Removed the obsolete BetterMacro Lock/Unlock button, including its initial
+  login flash on fresh characters.
+- Restyled the keybinding dialog to match BetterBind's flat dark theme.
+- Replaced the Blizzard dialog border with a single rectangular background.
+- Matched the Exit, Unbind, close, and For All Characters controls to the
+  addon's existing button and checkbox styles.
+- Restored the Keybinding, Press a Key to Bind, selected action, and Current
+  Key text on a dedicated foreground layer so other UI frames cannot cover it.
+- Anchored BetterMacro directly to BetterBind's right edge so both windows
+  remain aligned when Blizzard moves BetterBind for the spellbook or another
+  managed panel.
+
 ## 1.0.3 — 2026-08-20
 
 - Added a bottom-left Delete button to the BetterBind window.

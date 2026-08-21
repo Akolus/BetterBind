@@ -6,7 +6,7 @@ addon contains two integrated modules:
 - **BetterMacro** — extended, profile-aware macro storage and editing.
 - **Icon Browser** — a searchable, paged icon picker with a fixed 10×10 grid.
 
-BetterBind is intended for modern WoW Retail. Version 1.0.3 preserves the
+BetterBind is intended for modern WoW Retail. Version 1.0.4 preserves the
 existing `BindPadVars`, `MegaMacroConfig`, `MegaMacroGlobalData`, and
 `MegaMacroCharacterData` table formats used by the development builds.
 
