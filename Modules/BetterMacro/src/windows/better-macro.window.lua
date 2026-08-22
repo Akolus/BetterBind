@@ -752,10 +752,6 @@ function MegaMacro_FrameSelectedMacroButton_OnDragStart()
 	PickupMegaMacro(State.selectedMacro)
 end
 
-function MegaMacro_FrameTextButton_OnClick()
-	if State.selectedMacro then MegaMacro_FrameText:SetFocus() end
-end
-
 function MegaMacro_TextBox_OnKeyDown(_, key)
 	if State.selectedMacro and key == "S" and IsControlKeyDown() then
 		MegaMacro_SaveButton_OnClick()
@@ -778,13 +774,6 @@ function MegaMacro_TextBox_TextChanged(self)
 		MegaMacro_FrameCharLimitText:SetTextColor(1, 1, 1)
 	end
 	if ScrollingEdit_OnTextChanged then ScrollingEdit_OnTextChanged(self, self:GetParent()) end
-	if MegaMacro_FormattedFrameText then
-		local ok, formatted = pcall(MegaMacroParser.Parse, text)
-		MegaMacro_FormattedFrameText:SetText(ok and formatted or text)
-		if ScrollingEdit_OnTextChanged then
-			ScrollingEdit_OnTextChanged(MegaMacro_FormattedFrameText, MegaMacro_FormattedFrameText:GetParent())
-		end
-	end
 end
 
 function MegaMacro_CancelButton_OnClick()

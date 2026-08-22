@@ -229,43 +229,15 @@
 			</Button>
 			<ScrollFrame name="MegaMacro_FrameScrollFrame" inherits="UIPanelScrollFrameTemplate">
 				<Size x="591" y="185"/>
-				<Scripts>
-					<OnMouseWheel>
-						ScrollFrameTemplate_OnMouseWheel(self, delta);
-					</OnMouseWheel>
-					<OnVerticalScroll>
-						local scrollbar1 = MegaMacro_FrameScrollFrameScrollBar;
-						local scrollbar2 = MegaMacro_FormattedFrameScrollFrameScrollBar;
-						scrollbar1:SetValue(offset);
-						scrollbar2:SetValue(offset);
-						local mini1, maxi1 = scrollbar1:GetMinMaxValues();
-						local mini2, maxi2 = scrollbar2:GetMinMaxValues();
-						if delta == 0 then
-							MegaMacro_FrameScrollFrameScrollBarScrollUpButton:Disable();
-							MegaMacro_FormattedFrameScrollFrameScrollBarScrollUpButton:Disable();
-						else
-							MegaMacro_FrameScrollFrameScrollBarScrollUpButton:Enable();
-							MegaMacro_FormattedFrameScrollFrameScrollBarScrollUpButton:Enable();
-						end
-						if scrollbar1:GetValue() - maxi1 == 0 then
-							MegaMacro_FrameScrollFrameScrollBarScrollDownButton:Disable();
-							MegaMacro_FormattedFrameScrollFrameScrollBarScrollDownButton:Disable();
-						else
-							MegaMacro_FrameScrollFrameScrollBarScrollDownButton:Enable();
-							MegaMacro_FormattedFrameScrollFrameScrollBarScrollDownButton:Enable();
-						end
-					</OnVerticalScroll>
-				</Scripts>
 				<Anchors>
 					<Anchor point="TOPLEFT" relativeTo="MegaMacro_FrameSelectedMacroBackground" relativePoint="BOTTOMLEFT" x="11" y="-13"/>
 				</Anchors>
 				<ScrollChild>
-					<EditBox name="MegaMacro_FrameText" multiLine="true" letters="1023" autoFocus="false" countInvisibleLetters="true">
+					<EditBox name="MegaMacro_FrameText" multiLine="true" letters="1023" autoFocus="false" countInvisibleLetters="true" blinkSpeed="0.5">
 						<Size x="589" y="185"/>
 						<Scripts>
 							<OnLoad>
 								ScrollingEdit_OnCursorChanged(self, 0, 0, 0, 0);
-								self:GetRegions():SetAlpha(0.2);
 							</OnLoad>
 							<OnKeyDown>MegaMacro_TextBox_OnKeyDown(self, key);</OnKeyDown>
 							<OnTextChanged>MegaMacro_TextBox_TextChanged(self);</OnTextChanged>
@@ -277,40 +249,6 @@
 					</EditBox>
 				</ScrollChild>
 			</ScrollFrame>
-			<ScrollFrame name="MegaMacro_FormattedFrameScrollFrame" inherits="UIPanelScrollFrameTemplate">
-				<Size x="591" y="185"/>
-				<Scripts>
-					<OnMouseWheel>
-						ScrollFrameTemplate_OnMouseWheel(self, delta);
-					</OnMouseWheel>
-				</Scripts>
-				<Anchors>
-					<Anchor point="TOPLEFT" relativeTo="MegaMacro_FrameSelectedMacroBackground" relativePoint="BOTTOMLEFT" x="11" y="-13"/>
-				</Anchors>
-				<ScrollChild>
-					<EditBox name="MegaMacro_FormattedFrameText" multiLine="true" letters="9999" autoFocus="false" countInvisibleLetters="true">
-						<Size x="589" y="185"/>
-						<Scripts>
-							<OnLoad>
-								ScrollingEdit_OnCursorChanged(self, 0, 0, 0, 0);
-								MegaMacro_FrameText:SetFrameLevel(self:GetFrameLevel() + 1)
-							</OnLoad>
-							<OnCursorChanged function="ScrollingEdit_OnCursorChanged"/>
-							<OnUpdate>ScrollingEdit_OnUpdate(self, elapsed, self:GetParent());</OnUpdate>
-						</Scripts>
-						<FontString inherits="GameFontHighlightSmall"/>
-					</EditBox>
-				</ScrollChild>
-			</ScrollFrame>
-			<Button name="MegaMacro_FrameTextButton">
-				<Size x="589" y="185"/>
-				<Anchors>
-					<Anchor point="TOPLEFT" relativeTo="MegaMacro_FrameText"/>
-				</Anchors>
-				<Scripts>
-					<OnClick>MegaMacro_FrameTextButton_OnClick();</OnClick>
-				</Scripts>
-			</Button>
 			<Button name="MegaMacro_CancelButton" frameStrata="HIGH" inherits="UIPanelButtonTemplate" text="CANCEL">
 				<Size x="80" y="22"/>
 				<Anchors>
@@ -329,12 +267,6 @@
 					<OnClick>MegaMacro_SaveButton_OnClick();</OnClick>
 				</Scripts>
 			</Button>
-			<Frame name="MacroFrameTextBackground" inherits="TooltipBackdropTemplate">
-				<Size x="627" y="195"/>
-				<Anchors>
-					<Anchor point="TOPLEFT" relativeTo="MegaMacro_Frame" x="6" y="-289"/>
-				</Anchors>
-			</Frame>
 			<Button name="MegaMacro_FrameTab1" inherits="PanelTabButtonTemplate" text="Global" id="1">
 				<Anchors>
 					<Anchor point="TOPLEFT" x="51" y="-28"/>

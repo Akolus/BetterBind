@@ -1,14 +1,14 @@
 ## Interface: 120100, 120005, 120001, 120000, 11508, 11507
 ## X-Expansion: MAINLINE
 ## Title: BetterBind
-## Version: 1.0.4
+## Version: 1.0.21
 ## Author: Akolus
 ## Notes: Keybinding management with BetterMacro and Icon Browser modules.
 ## IconTexture: Interface\AddOns\BetterBind\BetterBindIcon
 ## X-Website: https://github.com/Akolus/BetterBind
 ## X-Curse-Project-Name: BetterBind
 ## OptionalDeps: ElvUI
-## SavedVariables: BindPadVars, MegaMacroConfig, MegaMacroGlobalData
+## SavedVariables: BindPadVars, MegaMacroConfig, MegaMacroGlobalData, BetterBindDemoData
 ## SavedVariablesPerCharacter: MegaMacroCharacterData
 
 # BetterBind core. Legacy global names and SavedVariables are retained so
@@ -54,6 +54,7 @@ Compatibility\VisualPolish.lua
 UI\Layout.lua
 Compatibility\BetterBind.lua
 
-# BetterMacro editor and Icon Browser modules
+# Editor and Icon Browser modules
 Modules\BetterMacro\Editor.lua
 Modules\IconBrowser\IconBrowser.lua
+Modules\DemoEditor\DemoEditor.lua

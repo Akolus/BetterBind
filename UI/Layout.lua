@@ -15,6 +15,7 @@ local C={
     text={.93,.94,.96,1},
     yellow={1,.82,.02,1},
     blue={.02,.58,.94,1},
+    purple={.56,.32,1,1},
     red={.42,.02,.02,1},
 }
 
@@ -231,8 +232,12 @@ local function StyleTabSelection(frame,prefix,count,selectedIndex)
         if tab then
             local fill=tab.__BPMMGoalTabFill
             local edges=tab.__BPMMGoalTabEdges
+            local underline=tab.__BPMMGoalTabUnderline
+            local glow=tab.__BPMMGoalTabGlow
             for _,region in ipairs({tab:GetRegions()}) do
                 local isCustom=region==fill
+                    or region==underline
+                    or region==glow
                 if not isCustom and edges then
                     for _,edge in ipairs(edges) do
                         if region==edge then isCustom=true; break end
@@ -275,25 +280,65 @@ local function StyleTabSelection(frame,prefix,count,selectedIndex)
                 edges[4]:SetWidth(1)
                 tab.__BPMMGoalTabEdges=edges
             end
+            if not underline then
+                underline=tab:CreateTexture(nil,"OVERLAY",nil,7)
+                underline:SetPoint("BOTTOMLEFT",tab,"BOTTOMLEFT",1,1)
+                underline:SetPoint("BOTTOMRIGHT",tab,"BOTTOMRIGHT",-1,1)
+                underline:SetHeight(2)
+                tab.__BPMMGoalTabUnderline=underline
+            end
+            if not glow then
+                glow=tab:CreateTexture(nil,"ARTWORK",nil,-3)
+                glow:SetPoint("BOTTOMLEFT",tab,"BOTTOMLEFT",1,3)
+                glow:SetPoint("TOPRIGHT",tab,"TOPRIGHT",-1,-1)
+                local gradientApplied=false
+                if glow.SetGradient and _G.CreateColor then
+                    gradientApplied=pcall(
+                        glow.SetGradient,
+                        glow,
+                        "VERTICAL",
+                        CreateColor(C.purple[1],C.purple[2],C.purple[3],.24),
+                        CreateColor(C.purple[1],C.purple[2],C.purple[3],0)
+                    )
+                end
+                if not gradientApplied and glow.SetGradientAlpha then
+                    gradientApplied=pcall(
+                        glow.SetGradientAlpha,
+                        glow,
+                        "VERTICAL",
+                        C.purple[1],C.purple[2],C.purple[3],.24,
+                        C.purple[1],C.purple[2],C.purple[3],0
+                    )
+                end
+                if not gradientApplied then
+                    glow:SetColorTexture(
+                        C.purple[1],C.purple[2],C.purple[3],.10
+                    )
+                end
+                tab.__BPMMGoalTabGlow=glow
+            end
 
             local selected=i==selectedIndex
             fill:SetColorTexture(
-                selected and .025 or C.panel2[1],
-                selected and .105 or C.panel2[2],
-                selected and .165 or C.panel2[3],
+                selected and .040 or C.panel2[1],
+                selected and .032 or C.panel2[2],
+                selected and .062 or C.panel2[3],
                 1
             )
             for _,edge in ipairs(edges) do
-                if selected then
-                    edge:SetColorTexture(unpack(C.blue))
-                else
-                    edge:SetColorTexture(unpack(C.border))
-                end
+                edge:SetColorTexture(unpack(C.border))
                 edge:SetAlpha(1)
                 edge:Show()
             end
+            underline:SetColorTexture(unpack(C.purple))
+            underline:SetShown(selected)
+            glow:SetShown(selected)
             fill:SetAlpha(1)
             fill:Show()
+            local fs=tab.GetFontString and tab:GetFontString()
+            if fs then
+                fs:SetTextColor(unpack(selected and C.text or C.muted))
+            end
             if tab.UnlockHighlight then tab:UnlockHighlight() end
         end
     end
@@ -1321,10 +1366,6 @@ local function LayoutMegaMacroEditor()
     HideScrollBar(rawSF)
     HideScrollBar(formattedSF)
 
-    if _G.BPMMBetterMacroEditor and _G.BPMMBetterMacroEditor.Apply then
-        _G.BPMMBetterMacroEditor.Apply()
-    end
-
     local edit=_G.MegaMacro_EditButton
     local save=_G.MegaMacro_SaveButton
     local cancel=_G.MegaMacro_CancelButton
@@ -1345,6 +1386,12 @@ local function LayoutMegaMacroEditor()
         cancel:ClearAllPoints()
         cancel:SetPoint("TOPRIGHT",rawSF,"BOTTOMRIGHT",0,-8)
         StyleGoalButton(cancel,"Cancel",false)
+    end
+
+    -- Apply the editor after the action row is anchored. A runtime problem in
+    -- editor setup must never leave these buttons at their legacy XML points.
+    if _G.BPMMBetterMacroEditor and _G.BPMMBetterMacroEditor.Apply then
+        _G.BPMMBetterMacroEditor.Apply()
     end
 
     if _G.MegaMacro_FrameCharLimitText then
@@ -1504,6 +1551,11 @@ if _G.MegaMacro_Frame then
     MegaMacro_Frame:HookScript("OnShow",function()
         C_Timer.After(0,Goal.Apply)
         C_Timer.After(.2,Goal.Apply)
+    end)
+end
+if type(_G.BindPadFrameTab_OnClick)=="function" then
+    hooksecurefunc("BindPadFrameTab_OnClick",function()
+        ApplyBindPadNow()
     end)
 end
 if type(_G.MegaMacro_FrameTab_OnClick)=="function" then

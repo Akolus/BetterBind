@@ -190,6 +190,7 @@ local function StyleTab(tab, selected)
 end
 
 local function StyleMegaTabs()
+    if _G.BPMMGoalLayout then return end
     if not MegaMacro_Frame then return end
 
     local selected = PanelTemplates_GetSelectedTab and PanelTemplates_GetSelectedTab(MegaMacro_Frame) or 1
@@ -199,6 +200,7 @@ local function StyleMegaTabs()
 end
 
 local function StyleBindTabs()
+    if _G.BPMMGoalLayout then return end
     if not BindPadFrame then return end
 
     local selected = BindPadVars and BindPadVars.tab or 1
@@ -1316,30 +1318,9 @@ local function CleanAllMacroCells()
 end
 
 local function MakeEditorVibrant()
-    if _G.BPMMBetterMacroEditor then return end
-    local raw=_G.MegaMacro_FrameText
-    local formatted=_G.MegaMacro_FormattedFrameText
-
-    if raw then
-        for _,r in ipairs({raw:GetRegions()}) do
-            if r and r.GetObjectType and r:GetObjectType()=="FontString" then
-                r:SetAlpha(.03)
-            end
-        end
-    end
-
-    if formatted then
-        for _,r in ipairs({formatted:GetRegions()}) do
-            if r and r.GetObjectType and r:GetObjectType()=="FontString" then
-                r:SetAlpha(1)
-                r:SetTextColor(1,1,1,1)
-            end
-        end
-    end
-
-    if raw and formatted and MegaMacroParser then
-        formatted:SetText(MegaMacroParser.Parse(raw:GetText() or ""))
-    end
+    -- Retired with the formatted editor. The old implementation reduced the
+    -- native EditBox region to 3% opacity, which also made its selection
+    -- feedback effectively invisible.
 end
 
 local function Apply()
@@ -1582,39 +1563,7 @@ local function CleanLegacyBorders()
 end
 
 local function FixMacroSyntaxLayer()
-    if _G.BPMMBetterMacroEditor then return end
-    local rawSF=_G.MegaMacro_FrameScrollFrame
-    local fmtSF=_G.MegaMacro_FormattedFrameScrollFrame
-    local raw=_G.MegaMacro_FrameText
-    local fmt=_G.MegaMacro_FormattedFrameText
-
-    if not rawSF or not fmtSF or not raw or not fmt then return end
-
-    -- Put the parser-coloured copy ABOVE the raw editor, but make the formatted
-    -- layer non-interactive so mouse input still reaches the actual editor.
-    fmtSF:SetFrameLevel(rawSF:GetFrameLevel()+5)
-    fmt:SetFrameLevel(raw:GetFrameLevel()+5)
-    fmtSF:EnableMouse(false)
-    fmt:EnableMouse(false)
-
-    -- Raw editable glyphs become invisible; cursor/focus remains on the real
-    -- edit box while the formatted parser text is what the user sees.
-    for _,r in ipairs({raw:GetRegions()}) do
-        if r and r.GetObjectType and r:GetObjectType()=="FontString" then
-            r:SetAlpha(0)
-        end
-    end
-
-    for _,r in ipairs({fmt:GetRegions()}) do
-        if r and r.GetObjectType and r:GetObjectType()=="FontString" then
-            r:SetAlpha(1)
-            r:SetTextColor(1,1,1,1)
-        end
-    end
-
-    if MegaMacroParser then
-        fmt:SetText(MegaMacroParser.Parse(raw:GetText() or ""))
-    end
+    -- Retired with the formatted editor. Never hide the native EditBox.
 end
 
 local function ShiftObjectY(obj,dy)
@@ -2477,15 +2426,19 @@ local function Install()
 
     local shell=frame.__BPMMShell
     if not shell then
-        -- Stage 6 normally provides the shell. If it is absent, create a tiny
-        -- title hit-zone rather than altering the visual frame.
         shell=CreateFrame("Frame",nil,frame)
-        shell:SetPoint("TOPLEFT",frame,"TOPLEFT",0,0)
-        shell:SetPoint("TOPRIGHT",frame,"TOPRIGHT",0,0)
-        shell:SetHeight(38)
-        shell:SetFrameLevel(frame:GetFrameLevel()+20)
         frame.__BPMMShell=shell
     end
+
+    -- Compatibility/UI originally creates this shell across the entire BM
+    -- window. Once it becomes mouse-enabled for dragging it can sit over the
+    -- macro editor and consume clicks/wheel input. Always reduce it to the
+    -- actual title bar, even when the shell already existed.
+    shell:ClearAllPoints()
+    shell:SetPoint("TOPLEFT",frame,"TOPLEFT",0,0)
+    shell:SetPoint("TOPRIGHT",frame,"TOPRIGHT",0,0)
+    shell:SetHeight(38)
+    shell:SetFrameLevel(frame:GetFrameLevel()+20)
 
     shell:EnableMouse(true)
     shell:RegisterForDrag("LeftButton")

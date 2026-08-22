@@ -6,9 +6,10 @@ addon contains two integrated modules:
 - **BetterMacro** — extended, profile-aware macro storage and editing.
 - **Icon Browser** — a searchable, paged icon picker with a fixed 10×10 grid.
 
-BetterBind is intended for modern WoW Retail. Version 1.0.4 preserves the
+BetterBind is intended for modern WoW Retail. Version 1.0.21 preserves the
 existing `BindPadVars`, `MegaMacroConfig`, `MegaMacroGlobalData`, and
-`MegaMacroCharacterData` table formats used by the development builds.
+`MegaMacroCharacterData` table formats used by the development builds. Its
+standalone `/bbb` diagnostic stores only its own `BetterBindDemoData` draft.
 
 ## Features
 
@@ -21,12 +22,15 @@ existing `BindPadVars`, `MegaMacroConfig`, `MegaMacroGlobalData`, and
 - Right-click BetterMacro icons to edit them in Icon Browser.
 - Optional hotkey labels and automatic key saving.
 - Locate a selected BetterMacro and scroll its BetterBind slot into view.
+- Purple bottom-accent tabs with a soft upward glow for the active scope.
 
 ### BetterMacro
 
 - 12×4 visible grid with additional pages.
 - Global, class, specialization, character, and inactive scopes.
-- Extended macro editor with syntax coloring and dynamic icon evaluation.
+- Native macro input with click placement, drag and double-click selection,
+  wheel scrolling, a thin themed caret, validated spell/item syntax colours,
+  and dynamic icon evaluation.
 - Stable macro IDs so action bars and BetterBind slots retain their targets.
 - Search and locate tools shared with BetterBind.
 
@@ -37,6 +41,15 @@ existing `BindPadVars`, `MegaMacroConfig`, `MegaMacroGlobalData`, and
 - Mouse-wheel paging that always keeps a complete icon page visible.
 - Selected-icon highlight and fallback-icon support.
 
+### Standalone editor diagnostic
+
+- Independent macro draft editor with no BetterMacro frame or handler reuse.
+- Double-click word selection, right-button drag selection, mouse-wheel
+  scrolling, and a one-pixel blinking themed caret.
+- Live macro syntax colours with separate validation colours for valid spells,
+  valid items, and `/click` frame references.
+- Automatically saves its test draft and window position.
+
 ## Commands
 
 | Command | Action |
@@ -46,6 +59,7 @@ existing `BindPadVars`, `MegaMacroConfig`, `MegaMacroGlobalData`, and
 | `/bm`, `/bettermacro`, `/m`, `/macro` | Open BetterMacro |
 | `/bbfind` | Search BetterMacro and BetterBind slots |
 | `/bbwhere` | Report where the selected BetterMacro is used |
+| `/bbb` | Toggle the standalone macro editor diagnostic |
 
 Hold **Shift** and use the mouse wheel over either window header to change that
 window's scale. Each scale is saved independently.
