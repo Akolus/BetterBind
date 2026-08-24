@@ -16,16 +16,6 @@
     <CheckButton name="BindPadProfileTabTemplate" virtual="true" hidden="true">
         <Size x="32" y="32" />
         <Layers>
-            <Layer level="BACKGROUND">
-                <Texture name="$parentBackground" file="Interface\SpellBook\SpellBook-SkillLineTab">
-                    <Size x="64" y="64" />
-                    <Anchors>
-                        <Anchor point="TOPLEFT">
-                            <Offset x="-3" y="11" />
-                        </Anchor>
-                    </Anchors>
-                </Texture>
-            </Layer>
             <Layer level="OVERLAY">
                 <Texture name="$parentSubIcon" parentKey="subIcon" hidden="true">
                     <Size x="15" y="15" />
@@ -69,8 +59,6 @@
             </OnShow>
         </Scripts>
         <NormalTexture />
-        <HighlightTexture file="Interface\Buttons\ButtonHilight-Square" alphaMode="ADD" />
-        <CheckedTexture file="Interface\Buttons\CheckButtonHilight" alphaMode="ADD" />
     </CheckButton>
     <Button name="BindPadIconTemplate" virtual="true">
         <Size>
@@ -121,20 +109,6 @@
                 </Texture>
             </Layer>
         </Layers>
-        <NormalTexture name="$parentNormalTexture" file="Interface\Buttons\UI-Quickslot2">
-            <Size>
-                <AbsDimension x="66" y="66" />
-            </Size>
-            <Anchors>
-                <Anchor point="CENTER">
-                    <Offset>
-                        <AbsDimension x="0" y="-1" />
-                    </Offset>
-                </Anchor>
-            </Anchors>
-        </NormalTexture>
-        <PushedTexture file="Interface\Buttons\UI-Quickslot-Depress" />
-        <HighlightTexture alphaMode="ADD" file="Interface\Buttons\ButtonHilight-Square" />
     </Button>
     <Button name="BindPadSlotTemplate" inherits="BindPadIconTemplate" virtual="true">
         <Frames>
@@ -500,21 +474,6 @@
                     </OnLeave>
                 </Scripts>
             </CheckButton>
-            <!-- Bottom Right "Exit" Button -->
-            <Button name="$parentExitButton" inherits="BindPadUIPanelButtonTemplate, MagicButtonTemplate" text="BINDPAD_TEXT_EXIT">
-                <Size>
-                    <AbsDimension x="80" y="22" />
-                </Size>
-                <Anchors>
-                    <Anchor point="BOTTOMRIGHT" />
-                </Anchors>
-                <Scripts>
-                    <OnLoad function="MagicButton_OnLoad" />
-                    <OnClick>
-                        HideUIPanel(self:GetParent())
-                    </OnClick>
-                </Scripts>
-            </Button>
             <Button name="$parentOpenSpellBookButton" inherits="BindPadUIPanelButtonTemplate" hidden="true" enableMouse="false">
                 <Size>
                     <AbsDimension x="29" y="58" />

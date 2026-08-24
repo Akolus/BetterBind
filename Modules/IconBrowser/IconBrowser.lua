@@ -6,15 +6,17 @@ _G.BetterAppearanceConfig=Appearance
 
 local WHITE="Interface\\Buttons\\WHITE8x8"
 local C={
-    shell={.018,.020,.024,.99},
-    panel={.014,.017,.021,.99},
-    panel2={.030,.034,.040,1},
-    border={.13,.14,.16,1},
+    shell={.045,.052,.060,.98},
+    panel={.052,.060,.070,.90},
+    panel2={.070,.080,.092,.94},
+    border={.18,.21,.25,1},
     muted={.62,.64,.68,1},
     text={.93,.94,.96,1},
     blue={.02,.58,.94,1},
 }
-
+local CONTROL_HOVER={.085,.095,.108,.96}
+local CONTROL_HOVER_EDGE={.28,.34,.40,1}
+local CONTROL_HOVER_ACCENT={.18,.72,.72,1}
 local sections={}
 local configBuilt=false
 
@@ -88,6 +90,17 @@ local function StyleFlatButton(button,text)
     end
     Backdrop(bg,C.panel2,C.border)
 
+    local underline=button.__BetterAppearanceUnderline
+    if not underline then
+        underline=button:CreateTexture(nil,"OVERLAY",nil,7)
+        underline:SetPoint("BOTTOMLEFT",button,"BOTTOMLEFT",1,1)
+        underline:SetPoint("BOTTOMRIGHT",button,"BOTTOMRIGHT",-1,1)
+        underline:SetHeight(1)
+        underline:SetColorTexture(unpack(CONTROL_HOVER_ACCENT))
+        underline:Hide()
+        button.__BetterAppearanceUnderline=underline
+    end
+
     local font=button.GetFontString and button:GetFontString() or button.Text
     if font then
         font:SetTextColor(unpack(C.text))
@@ -98,13 +111,15 @@ local function StyleFlatButton(button,text)
         button.__BetterAppearanceHooks=true
         button:HookScript("OnEnter",function(self)
             if self:IsEnabled() then
-                self.__BetterAppearanceBG:SetBackdropColor(.055,.075,.095,1)
-                self.__BetterAppearanceBG:SetBackdropBorderColor(unpack(C.blue))
+                self.__BetterAppearanceBG:SetBackdropColor(unpack(CONTROL_HOVER))
+                self.__BetterAppearanceBG:SetBackdropBorderColor(unpack(CONTROL_HOVER_EDGE))
+                self.__BetterAppearanceUnderline:Show()
             end
         end)
         button:HookScript("OnLeave",function(self)
             self.__BetterAppearanceBG:SetBackdropColor(unpack(C.panel2))
             self.__BetterAppearanceBG:SetBackdropBorderColor(unpack(C.border))
+            self.__BetterAppearanceUnderline:Hide()
         end)
     end
 end
@@ -117,44 +132,27 @@ local function MakeText(parent,text,size)
     return font
 end
 
+local function SafeAppearanceCall(name,callback)
+    if type(callback)~="function" then return false end
+    local ok,message=xpcall(callback,function(errorMessage)
+        local trace=debugstack and debugstack(2,20,20) or ""
+        return ("BetterBind %s failed: %s\n%s"):format(
+            name,tostring(errorMessage),trace
+        )
+    end)
+    if not ok then
+        local errorHandler=geterrorhandler and geterrorhandler()
+        if errorHandler then errorHandler(message) end
+    end
+    return ok
+end
+
 local function ApplyEverything()
     if _G.BPMMGoalLayout and _G.BPMMGoalLayout.Apply then
         _G.BPMMGoalLayout.Apply()
     end
-    if Appearance.LayoutIconBrowser then Appearance.LayoutIconBrowser() end
+    SafeAppearanceCall("Icon Browser layout",Appearance.LayoutIconBrowser)
     if Appearance.RefreshConfig then Appearance.RefreshConfig() end
-end
-
-local function CreateChoiceButton(parent,label,value,group)
-    local button=CreateFrame("Button",nil,parent)
-    button:SetSize(74,24)
-    local font=MakeText(button,label,10)
-    font:SetPoint("CENTER")
-    button.Text=font
-    local bg=CreateFrame("Frame",nil,button,"BackdropTemplate")
-    bg:SetAllPoints()
-    bg:SetFrameLevel(math.max(0,button:GetFrameLevel()-1))
-    bg:EnableMouse(false)
-    button.__BetterAppearanceBG=bg
-    button.__AppearanceValue=value
-    Backdrop(bg,C.panel2,C.border)
-    button:SetScript("OnClick",function()
-        if _G.BetterBindAppearance_Set then
-            BetterBindAppearance_Set(group,"style",value)
-            ApplyEverything()
-        end
-    end)
-    button:SetScript("OnEnter",function(self)
-        if not self.__AppearanceSelected then
-            self.__BetterAppearanceBG:SetBackdropBorderColor(unpack(C.blue))
-        end
-    end)
-    button:SetScript("OnLeave",function(self)
-        if not self.__AppearanceSelected then
-            self.__BetterAppearanceBG:SetBackdropBorderColor(unpack(C.border))
-        end
-    end)
-    return button
 end
 
 local function CreateSlider(parent,group,key,minimum,maximum,width,suffix)
@@ -233,31 +231,20 @@ local function CreateSection(container,definition,index)
     local title=MakeText(panel,definition.title,13)
     title:SetPoint("TOPLEFT",12,-11)
 
-    local styleLabel=MakeText(panel,"Icon style",10)
-    styleLabel:SetPoint("TOPLEFT",12,-40)
-
-    local full=CreateChoiceButton(panel,"Full square","full",definition.group)
-    full:SetPoint("TOPLEFT",panel,"TOPLEFT",112,-32)
-    local crop=CreateChoiceButton(panel,"Cropped","crop",definition.group)
-    crop:SetPoint("LEFT",full,"RIGHT",6,0)
-    local rounded=CreateChoiceButton(panel,"Crop + round","rounded",definition.group)
-    rounded:SetPoint("LEFT",crop,"RIGHT",6,0)
-
-    local zoomLabel=MakeText(panel,"Icon zoom",10)
-    zoomLabel:SetPoint("TOPLEFT",12,-78)
-    local zoom=CreateSlider(panel,definition.group,"zoom",0,40,142,"%")
-    zoom:SetPoint("LEFT",panel,"LEFT",112,-30)
+    local styleLabel=MakeText(panel,"Fixed style",10)
+    styleLabel:SetPoint("TOPLEFT",12,-42)
+    local style=MakeText(panel,"Plunderstorm · Cooldown Manager · HUI Mask",10)
+    style:SetPoint("LEFT",panel,"LEFT",112,11)
+    style:SetTextColor(unpack(C.muted))
 
     local spacingLabel=MakeText(panel,"Spacing",10)
-    spacingLabel:SetPoint("LEFT",panel,"LEFT",368,-30)
-    local spacing=CreateSlider(panel,definition.group,"spacing",0,definition.spacingMax,142," px")
-    spacing:SetPoint("LEFT",panel,"LEFT",432,-30)
+    spacingLabel:SetPoint("TOPLEFT",12,-78)
+    local spacing=CreateSlider(panel,definition.group,"spacing",0,definition.spacingMax,260," px")
+    spacing:SetPoint("LEFT",panel,"LEFT",112,-30)
 
     local section={
         panel=panel,
         group=definition.group,
-        choices={full,crop,rounded},
-        zoom=zoom,
         spacing=spacing,
     }
     sections[#sections+1]=section
@@ -267,18 +254,7 @@ end
 function Appearance.RefreshConfig()
     for _,section in ipairs(sections) do
         local saved=_G.BetterBindAppearance_Get and BetterBindAppearance_Get(section.group)
-            or {style="crop",zoom=0,spacing=0}
-        for _,button in ipairs(section.choices) do
-            local selected=button.__AppearanceValue==saved.style
-            button.__AppearanceSelected=selected
-            button.__BetterAppearanceBG:SetBackdropColor(
-                selected and .025 or C.panel2[1],
-                selected and .105 or C.panel2[2],
-                selected and .165 or C.panel2[3],1
-            )
-            button.__BetterAppearanceBG:SetBackdropBorderColor(unpack(selected and C.blue or C.border))
-        end
-        section.zoom:__Refresh(saved.zoom)
+            or {spacing=0}
         section.spacing:__Refresh(saved.spacing)
     end
 end
@@ -303,7 +279,7 @@ local function BuildConfig()
 
     local title=MakeText(container,"Icon appearance",16)
     title:SetPoint("TOPLEFT",14,-13)
-    local subtitle=MakeText(container,"Each group is independent. Zoom changes the crop, never the slot size.",10)
+    local subtitle=MakeText(container,"Fixed icon styling with independent spacing for each group.",10)
     subtitle:SetPoint("LEFT",title,"RIGHT",14,0)
     subtitle:SetTextColor(unpack(C.muted))
 
@@ -388,6 +364,28 @@ local function StylePopupEditBox(edit)
         edit.__BetterAppearanceInputBG=bg
     end
     Backdrop(bg,C.panel2,C.border)
+    local underline=edit.__BetterAppearanceInputUnderline
+    if not underline then
+        underline=bg:CreateTexture(nil,"OVERLAY",nil,7)
+        underline:SetPoint("BOTTOMLEFT",bg,"BOTTOMLEFT",1,1)
+        underline:SetPoint("BOTTOMRIGHT",bg,"BOTTOMRIGHT",-1,1)
+        underline:SetHeight(1)
+        underline:SetColorTexture(unpack(CONTROL_HOVER_ACCENT))
+        underline:Hide()
+        edit.__BetterAppearanceInputUnderline=underline
+    end
+    if not edit.__BetterAppearanceInputHooks then
+        edit.__BetterAppearanceInputHooks=true
+        local function SetHovered(hovered)
+            bg:SetBackdropColor(unpack(hovered and CONTROL_HOVER or C.panel2))
+            bg:SetBackdropBorderColor(unpack(hovered and CONTROL_HOVER_EDGE or C.border))
+            underline:SetShown(hovered and true or false)
+        end
+        edit:HookScript("OnEnter",function() SetHovered(true) end)
+        edit:HookScript("OnLeave",function(self) SetHovered(self:HasFocus()) end)
+        edit:HookScript("OnEditFocusGained",function() SetHovered(true) end)
+        edit:HookScript("OnEditFocusLost",function(self) SetHovered(self:IsMouseOver()) end)
+    end
 end
 
 local function StylePopupCheckBox(check)
@@ -411,12 +409,30 @@ local function StylePopupCheckBox(check)
         mark:SetPoint("TOPLEFT",4,-4)
         mark:SetPoint("BOTTOMRIGHT",-4,4)
         check.__BetterAppearanceCheckMark=mark
-        check:HookScript("OnClick",function(self)
-            self.__BetterAppearanceCheckMark:SetShown(self:GetChecked())
-        end)
+    end
+    local function Refresh(self,hovered)
+        self.__BetterAppearanceCheckMark:SetShown(self:GetChecked() and true or false)
+        self.__BetterAppearanceCheckBG:SetBackdropColor(
+            hovered and .085 or C.panel2[1],
+            hovered and .095 or C.panel2[2],
+            hovered and .108 or C.panel2[3],
+            hovered and .96 or C.panel2[4]
+        )
+        self.__BetterAppearanceCheckBG:SetBackdropBorderColor(
+            hovered and .28 or C.border[1],
+            hovered and .34 or C.border[2],
+            hovered and .40 or C.border[3],1
+        )
     end
     Backdrop(bg,C.panel2,C.border)
-    check.__BetterAppearanceCheckMark:SetShown(check:GetChecked())
+    Refresh(check,false)
+    if not check.__BetterAppearanceCheckHooks then
+        check.__BetterAppearanceCheckHooks=true
+        check:HookScript("OnClick",function(self) Refresh(self,self:IsMouseOver()) end)
+        check:HookScript("OnShow",function(self) Refresh(self,false) end)
+        check:HookScript("OnEnter",function(self) Refresh(self,true) end)
+        check:HookScript("OnLeave",function(self) Refresh(self,false) end)
+    end
 end
 
 local function StyleBrowserButton(button)
@@ -427,20 +443,16 @@ local function StyleBrowserButton(button)
 
     button:SetSize(41,41)
     icon:ClearAllPoints()
-    -- The icon itself is the requested 41x41 surface.  The custom cell frame
-    -- is an overlay and must never steal pixels from that surface.  The old
-    -- click refresh reapplied a two-pixel inset after selection, which made a
-    -- clicked icon visibly shrink from its configured size to 36x36.
     icon:SetAllPoints(button)
     icon:SetAlpha(1)
     icon:Show()
 
-    -- SimplePopupButtonTemplate contributes Blizzard slot/background artwork
-    -- in addition to the named icon texture.  Retire every inherited texture
-    -- except the icon itself; the custom one-pixel cell frame below supplies
-    -- the only background and border the browser needs.
+    -- SimplePopupButtonTemplate contributes Blizzard slot/background artwork.
+    -- Retire it before the shared Plunderstorm/Cooldown Manager stack is added.
     for _,region in ipairs({button:GetRegions()}) do
-        if region~=icon and region.GetObjectType and region:GetObjectType()=="Texture" then
+        if region~=icon and not region.__BetterBindOwned
+            and region.GetObjectType and region:GetObjectType()=="Texture"
+        then
             HideTexture(region)
         end
     end
@@ -455,23 +467,8 @@ local function StyleBrowserButton(button)
     HideTexture(button.GetHighlightTexture and button:GetHighlightTexture())
     HideTexture(button.GetCheckedTexture and button:GetCheckedTexture())
 
-    local bg=button.__BetterAppearanceCellBG
-    if not bg then
-        bg=CreateFrame("Frame",nil,button,"BackdropTemplate")
-        bg:SetAllPoints()
-        bg:SetFrameLevel(math.max(0,button:GetFrameLevel()-1))
-        bg:EnableMouse(false)
-        bg.__BetterAppearanceOwned=true
-        button.__BetterAppearanceCellBG=bg
-        button:HookScript("OnEnter",function(self)
-            self.__BetterAppearanceCellBG:SetBackdropBorderColor(unpack(C.blue))
-        end)
-        button:HookScript("OnLeave",function(self)
-            self.__BetterAppearanceCellBG:SetBackdropBorderColor(unpack(self:GetChecked() and C.blue or C.border))
-        end)
-        -- BetterMacro refreshes the selected border directly.  Do not restyle
-        -- all one hundred buttons on every click: apart from being wasteful,
-        -- that was the source of the post-click icon resize.
+    if not button.__BetterAppearanceSelectionHook then
+        button.__BetterAppearanceSelectionHook=true
         button:HookScript("OnClick",function(self)
             C_Timer.After(0,function()
                 if self.__BetterAppearanceRefreshSelection then
@@ -481,15 +478,15 @@ local function StyleBrowserButton(button)
         end)
     end
     button.__BetterAppearanceRefreshSelection=function(self)
-        local checked=self:GetChecked() and true or false
-        if self.__BetterAppearanceLastChecked==checked then return end
-        self.__BetterAppearanceLastChecked=checked
-        self.__BetterAppearanceCellBG:SetBackdropBorderColor(unpack(checked and C.blue or C.border))
+        if _G.BetterBindAppearance_StyleCell then
+            BetterBindAppearance_StyleCell(self,icon,true)
+        end
     end
-    Backdrop(bg,C.panel2,button:GetChecked() and C.blue or C.border)
-    button.__BetterAppearanceLastChecked=button:GetChecked() and true or false
     if _G.BetterBindAppearance_ApplyTexture then
         _G.BetterBindAppearance_ApplyTexture(button,icon,"browser")
+    end
+    if _G.BetterBindAppearance_StyleCell then
+        BetterBindAppearance_StyleCell(button,icon,true)
     end
     button:EnableMouseWheel(true)
     button:SetScript("OnMouseWheel",function(_,delta)
@@ -709,6 +706,11 @@ function Appearance.LayoutIconBrowser()
         popup.__BetterAppearanceShell=shell
     end
     Backdrop(shell,C.shell,C.border)
+    if _G.BetterBindAppearance_ApplyWindowPattern then
+        BetterBindAppearance_ApplyWindowPattern(
+            shell,"__BetterBindCircuit",0,1,.70,.142,.858
+        )
+    end
 
     local title=popup.__BetterAppearanceTitle
     if not title then
@@ -734,6 +736,12 @@ function Appearance.LayoutIconBrowser()
     close:SetSize(26,26)
     close:ClearAllPoints()
     close:SetPoint("TOPRIGHT",popup,"TOPRIGHT",-6,-6)
+    if _G.BetterBindAppearance_StyleClose then
+        -- A close-button skin must never prevent the rest of the browser from
+        -- being laid out. This also keeps older clients usable if a cosmetic
+        -- API is unavailable.
+        pcall(_G.BetterBindAppearance_StyleClose,popup,close)
+    end
 
     local header=popup.__BetterAppearanceDragHeader
     if not header then
@@ -826,6 +834,7 @@ function Appearance.LayoutIconBrowser()
     child:ClearAllPoints()
     child:SetPoint("TOPLEFT",scroll,"TOPLEFT",0,0)
     scroll:SetScript("OnVerticalScroll",nil)
+    scroll:SetHorizontalScroll(0)
     scroll:SetVerticalScroll(0)
 
     for i=1,(NUM_MACRO_ICONS_SHOWN or 100) do
@@ -961,10 +970,13 @@ end)
 local function InstallStableDrag()
     local frame=_G.MegaMacro_Frame
     if not frame then return end
-    local header=frame.__BPMMShell
+    -- The visual shell is a full-window background. Keep dragging on its own
+    -- transparent header so installing movement handlers cannot shrink or
+    -- reposition the background artwork.
+    local header=frame.__BetterMacroDragHeader
     if not header then
         header=CreateFrame("Frame",nil,frame)
-        frame.__BPMMShell=header
+        frame.__BetterMacroDragHeader=header
     end
     header:ClearAllPoints()
     header:SetPoint("TOPLEFT",frame,"TOPLEFT",1,-1)
@@ -994,10 +1006,11 @@ local function InstallStableDrag()
         frame:SetScale(nextScale)
     end)
 
+    -- The transparent header above is the only drag target. Registering the
+    -- whole window for LeftButton drag steals the same gesture from the macro
+    -- EditBox and prevents native text selection.
     frame:SetMovable(false)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart",function() BeginStableDrag(frame) end)
-    frame:SetScript("OnDragStop",EndStableDrag)
+    frame:RegisterForDrag()
 end
 
 if type(_G.MegaMacro_FrameTab_OnClick)=="function" then
@@ -1011,12 +1024,12 @@ if _G.MegaMacro_PopupFrame then
         if type(_G.BetterMacro_RefreshIconBrowser)=="function" then
             BetterMacro_RefreshIconBrowser(true)
         end
-        Appearance.LayoutIconBrowser()
+        SafeAppearanceCall("Icon Browser layout",Appearance.LayoutIconBrowser)
         C_Timer.After(0,function()
             if type(_G.BetterMacro_RefreshIconBrowser)=="function" then
                 BetterMacro_RefreshIconBrowser(true)
             end
-            Appearance.LayoutIconBrowser()
+            SafeAppearanceCall("Icon Browser layout",Appearance.LayoutIconBrowser)
         end)
     end)
 end
@@ -1037,7 +1050,7 @@ events:SetScript("OnEvent",function()
     C_Timer.After(.1,function()
         BuildConfig()
         Appearance.ApplyVisibility()
-        Appearance.LayoutIconBrowser()
+        SafeAppearanceCall("Icon Browser layout",Appearance.LayoutIconBrowser)
     end)
     -- Older layout stages also install drag handlers during login. Reapply
     -- this position-neutral handler after those deferred installers finish.

@@ -6,10 +6,9 @@ addon contains two integrated modules:
 - **BetterMacro** — extended, profile-aware macro storage and editing.
 - **Icon Browser** — a searchable, paged icon picker with a fixed 10×10 grid.
 
-BetterBind is intended for modern WoW Retail. Version 1.0.21 preserves the
+BetterBind is intended for modern WoW Retail. Version 1.0.37 preserves the
 existing `BindPadVars`, `MegaMacroConfig`, `MegaMacroGlobalData`, and
-`MegaMacroCharacterData` table formats used by the development builds. Its
-standalone `/bbb` diagnostic stores only its own `BetterBindDemoData` draft.
+`MegaMacroCharacterData` table formats used by the development builds.
 
 ## Features
 
@@ -22,17 +21,22 @@ standalone `/bbb` diagnostic stores only its own `BetterBindDemoData` draft.
 - Right-click BetterMacro icons to edit them in Icon Browser.
 - Optional hotkey labels and automatic key saving.
 - Locate a selected BetterMacro and scroll its BetterBind slot into view.
-- Purple bottom-accent tabs with a soft upward glow for the active scope.
+- One-pixel scope tabs with a purple selected edge and teal hover feedback.
+- Uniform 20-pixel solid-square toggles and a compact draggable keybinding
+  dialog with a fully opaque neutral background.
+- A neutral charcoal circuit background with thin steel, teal, and violet
+  routing lines shared across the paired windows.
 
 ### BetterMacro
 
 - 12×4 visible grid with additional pages.
 - Global, class, specialization, character, and inactive scopes.
-- Native macro input with click placement, drag and double-click selection,
-  wheel scrolling, a thin themed caret, validated spell/item syntax colours,
-  and dynamic icon evaluation.
+- Native macro input with Blizzard's unmodified caret and cursor placement,
+  visible left-drag selection, wheel scrolling, and syntax-coloured commands.
 - Stable macro IDs so action bars and BetterBind slots retain their targets.
 - Search and locate tools shared with BetterBind.
+- Matching one-pixel buttons and search fields with the same restrained hover
+  response used by the scope tabs.
 
 ### Icon Browser
 
@@ -40,15 +44,6 @@ standalone `/bbb` diagnostic stores only its own `BetterBindDemoData` draft.
 - Search by icon name, spell name, spell ID, or texture ID where available.
 - Mouse-wheel paging that always keeps a complete icon page visible.
 - Selected-icon highlight and fallback-icon support.
-
-### Standalone editor diagnostic
-
-- Independent macro draft editor with no BetterMacro frame or handler reuse.
-- Double-click word selection, right-button drag selection, mouse-wheel
-  scrolling, and a one-pixel blinking themed caret.
-- Live macro syntax colours with separate validation colours for valid spells,
-  valid items, and `/click` frame references.
-- Automatically saves its test draft and window position.
 
 ## Commands
 
@@ -59,7 +54,6 @@ standalone `/bbb` diagnostic stores only its own `BetterBindDemoData` draft.
 | `/bm`, `/bettermacro`, `/m`, `/macro` | Open BetterMacro |
 | `/bbfind` | Search BetterMacro and BetterBind slots |
 | `/bbwhere` | Report where the selected BetterMacro is used |
-| `/bbb` | Toggle the standalone macro editor diagnostic |
 
 Hold **Shift** and use the mouse wheel over either window header to change that
 window's scale. Each scale is saved independently.
@@ -101,8 +95,7 @@ BetterBind/
 ├── Modules/
 │   ├── BetterMacro/         extended macro module
 │   └── IconBrowser/         icon search and selection module
-├── UI/                      shared layout and media
-└── Compatibility/           legacy API/UI compatibility layer
+└── UI/                      consolidated interface and shared media
 ```
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes and

@@ -1,14 +1,14 @@
 ## Interface: 120100, 120005, 120001, 120000, 11508, 11507
 ## X-Expansion: MAINLINE
 ## Title: BetterBind
-## Version: 1.0.21
+## Version: 1.0.64
 ## Author: Akolus
 ## Notes: Keybinding management with BetterMacro and Icon Browser modules.
 ## IconTexture: Interface\AddOns\BetterBind\BetterBindIcon
 ## X-Website: https://github.com/Akolus/BetterBind
 ## X-Curse-Project-Name: BetterBind
 ## OptionalDeps: ElvUI
-## SavedVariables: BindPadVars, MegaMacroConfig, MegaMacroGlobalData, BetterBindDemoData
+## SavedVariables: BindPadVars, MegaMacroConfig, MegaMacroGlobalData
 ## SavedVariablesPerCharacter: MegaMacroCharacterData
 
 # BetterBind core. Legacy global names and SavedVariables are retained so
@@ -39,22 +39,12 @@ Modules\BetterMacro\src\main.lua
 # Rebuilt BetterBind window/controller layer
 Core\BetterBindController.lua
 
-# Shared UI and compatibility layer
-Compatibility\Integration.lua
-Compatibility\UI.lua
-Compatibility\PolishFix.lua
-Compatibility\Stage6.lua
-Compatibility\Stage7_5.lua
-Compatibility\Stage8_6.lua
-Compatibility\Stage8_6_1.lua
-Compatibility\Stage8_6_2.lua
-Compatibility\Stage8_6_3.lua
-Compatibility\TitleCleanup.lua
-Compatibility\VisualPolish.lua
-UI\Layout.lua
-Compatibility\BetterBind.lua
+# Consolidated UI, window behavior and BetterMacro integration
+UI\Interface.lua
 
 # Editor and Icon Browser modules
 Modules\BetterMacro\Editor.lua
 Modules\IconBrowser\IconBrowser.lua
-Modules\DemoEditor\DemoEditor.lua
+
+# BetterBind-only bundled typography (loaded last, with no layout hooks)
+UI\GlobalFont.lua

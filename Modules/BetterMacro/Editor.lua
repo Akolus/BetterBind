@@ -1,17 +1,21 @@
 -- BetterMacro single native EditBox editor.
 --
 -- The window XML creates the only text input. This module styles it, supplies
--- scroll behavior, and adds non-interactive selection feedback without placing
--- another mouse-enabled layer over the EditBox.
+-- scroll behavior and syntax feedback, and routes pointer gestures through a
+-- transparent proxy so the legacy EditBox cannot also mutate the same drag.
 
 local Editor={}
+Editor.VERSION="1.0.78"
 _G.BPMMBetterMacroEditor=Editor
 
 local WHITE="Interface\\Buttons\\WHITE8x8"
+local FONT_PATH="Interface\\AddOns\\BetterBind\\Fonts\\open-sans.light.ttf"
+local EDITOR_FONT_SIZE=14
 local BG={.075,.078,.088,1}
 local BORDER={.13,.14,.16,1}
 local TEXT={.90,.93,.97,1}
 local HIGHLIGHT={.02,.58,.94,.55}
+local FONT_SHADOW={0,0,0,.75}
 local SYNTAX_COLOR={
     text="ffeeeeee",
     syntax="ff33ddff",
@@ -24,32 +28,31 @@ local SYNTAX_COLOR={
     item="ffffb84d",
     reference="ff7fd5ff",
 }
-local LINE_SPACING=2
+local LINE_SPACING=0
 local WHEEL_LINES=3
 local DOUBLE_CLICK_SECONDS=.50
 local CARET_BLINK_SECONDS=.50
-local CARET_WIDTH=1
-local CARET_HEIGHT=20
+local CARET_HEIGHT=14
 local EDITOR_STRATA="DIALOG"
 local EDITOR_FRAME_LEVEL=100
 
 local backgroundTexture
 local measurementFrame
 local measurementText
+local BuildVisualLines
+local GetEditorLineHeight
+local ScrollEditor
 local selectionHighlights={}
 local rightMouseWasDown=false
 local leftMouseDownX
 local leftMouseDownY
+local leftMouseDownAnchor
 local nativeLeft={
     down=false,
     edit=nil,
     anchor=nil,
     current=nil,
-    fallbackAnchor=nil,
-    initialCursor=nil,
-    usingFallback=false,
     updatingCursor=false,
-    serial=0,
 }
 local requestedItemData={}
 local requestedSpellData={}
@@ -64,6 +67,11 @@ local caret={
     y=nil,
     width=nil,
     height=nil,
+    lineX=nil,
+    lineY=nil,
+    lineHeight=nil,
+    measuredX=nil,
+    effectiveScale=nil,
 }
 local selection={
     dragging=false,
@@ -76,6 +84,32 @@ local selection={
     lastClickButton=nil,
     serial=0,
 }
+local verticalNavigation={
+    edit=nil,
+    preferredX=nil,
+    serial=0,
+}
+local debugState={
+    enabled=false,
+    downEvents=0,
+    upEvents=0,
+    dragUpdates=0,
+    applyCalls=0,
+    lastPosition=nil,
+    releaseMissed=false,
+}
+
+local function ApplyEditorFont(object)
+    if object and object.SetFont then
+        object:SetFont(FONT_PATH,EDITOR_FONT_SIZE,"")
+    end
+    if object and object.SetShadowColor then
+        object:SetShadowColor(unpack(FONT_SHADOW))
+    end
+    if object and object.SetShadowOffset then
+        object:SetShadowOffset(0,0)
+    end
+end
 
 local KNOWN_COMMANDS={
     assist=true, cancelaura=true, cancelform=true, cast=true,
@@ -126,8 +160,75 @@ local function GetEditor()
     return _G.MegaMacro_FrameText
 end
 
+local function DebugFrameLabel(frame)
+    if not frame then return "nil" end
+    local name=frame.GetName and frame:GetName() or nil
+    local kind=frame.GetObjectType and frame:GetObjectType() or "region"
+    local level=frame.GetFrameLevel and frame:GetFrameLevel() or "-"
+    local strata=frame.GetFrameStrata and frame:GetFrameStrata() or "-"
+    return string.format(
+        "%s[%s L%s %s]",
+        name or "<anonymous>",kind,tostring(level),tostring(strata)
+    )
+end
+
+local function DebugMouseFocusLabel()
+    if type(_G.GetMouseFoci)=="function" then
+        local results={pcall(_G.GetMouseFoci)}
+        if results[1] then
+            local foci=results[2]
+            if type(foci)=="table" then
+                return DebugFrameLabel(foci[1])
+            end
+            if foci then return DebugFrameLabel(foci) end
+        end
+    end
+    if type(_G.GetMouseFocus)=="function" then
+        local ok,focus=pcall(_G.GetMouseFocus)
+        if ok then return DebugFrameLabel(focus) end
+    end
+    return "unavailable"
+end
+
+local function DebugLog(format,...)
+    if not debugState.enabled then return end
+    local ok,message=pcall(string.format,format,...)
+    if not ok then message=tostring(format) end
+    message="|cff33ddff[BBEdit]|r "..message
+    if _G.DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
+        DEFAULT_CHAT_FRAME:AddMessage(message)
+    elseif _G.print then
+        print(message)
+    end
+end
+
+local function CountShownSelectionHighlights()
+    local shown=0
+    for _,texture in ipairs(selectionHighlights) do
+        if texture:IsShown() then shown=shown+1 end
+    end
+    return shown
+end
+
+local function ResetDebugGesture()
+    debugState.downEvents=0
+    debugState.upEvents=0
+    debugState.dragUpdates=0
+    debugState.applyCalls=0
+    debugState.lastPosition=nil
+    debugState.releaseMissed=false
+end
+
 local function Trim(text)
     return (tostring(text or ""):match("^%s*(.-)%s*$"))
+end
+
+local function ParsePositiveInteger(value)
+    local text=Trim(value)
+    if not string.match(text,"^%d+$") then return end
+    local numeric=tonumber(text)
+    if not numeric or numeric<1 or numeric%1~=0 then return end
+    return numeric
 end
 
 local function EscapeDisplayText(text)
@@ -151,7 +252,9 @@ local function CollectSlashCommands()
 end
 
 local function RequestSpellData(identifier)
-    local numeric=tonumber(tostring(identifier or ""):match("(%d+)$"))
+    -- Only explicit numeric IDs may request data. Button references such as
+    -- ExtraActionButton1 are not spell ID 1.
+    local numeric=ParsePositiveInteger(identifier)
     if not numeric or requestedSpellData[numeric] then return end
     if C_Spell and C_Spell.RequestLoadSpellData then
         requestedSpellData[numeric]=true
@@ -160,7 +263,7 @@ local function RequestSpellData(identifier)
 end
 
 local function RequestItemData(identifier)
-    local numeric=tonumber(tostring(identifier or ""):match("(%d+)$"))
+    local numeric=ParsePositiveInteger(identifier)
     if not numeric or requestedItemData[numeric] then return end
     if C_Item and C_Item.RequestLoadItemDataByID then
         requestedItemData[numeric]=true
@@ -220,6 +323,8 @@ local function ResolveAbilityColour(value,command)
     value=Trim(value)
     if value=="" then return SYNTAX_COLOR.text end
 
+    if command=="click" then return SYNTAX_COLOR.reference end
+
     if string.match(string.lower(value),"^item:") then
         return IsValidItem(value) and SYNTAX_COLOR.item or SYNTAX_COLOR.error
     end
@@ -234,7 +339,6 @@ local function ResolveAbilityColour(value,command)
         if IsValidSpell(value) then return SYNTAX_COLOR.spell end
         if IsValidItem(value) then return SYNTAX_COLOR.item end
     end
-    if command=="click" then return SYNTAX_COLOR.reference end
     return SYNTAX_COLOR.text
 end
 
@@ -409,57 +513,57 @@ local function FormatMacroText(source)
     return table.concat(output)
 end
 
-local function EnsureSyntaxSurface(edit)
-    local surface=edit.__BPMMSyntaxSurface
-    if not surface then
-        surface=CreateFrame("Frame",nil,edit:GetParent())
-        surface:EnableMouse(false)
-        if surface.SetMouseClickEnabled then
-            surface:SetMouseClickEnabled(false)
-        end
-        if surface.SetMouseMotionEnabled then
-            surface:SetMouseMotionEnabled(false)
-        end
-        edit.__BPMMSyntaxSurface=surface
-    end
-
-    surface:ClearAllPoints()
-    surface:SetAllPoints(edit)
-    surface:SetFrameLevel(edit:GetFrameLevel()+10)
-    if surface.SetFrameStrata then surface:SetFrameStrata(EDITOR_STRATA) end
-    surface:SetAlpha(1)
-    surface:Show()
-    return surface
-end
-
 local function EnsureSyntaxText(edit)
     local syntax=edit.__BPMMSyntaxText
     if not syntax then
-        local surface=EnsureSyntaxSurface(edit)
-        syntax=surface:CreateFontString(
+        -- A FontString region cannot capture the mouse. Attaching it directly
+        -- to the EditBox lets the ARTWORK selection sit behind the glyphs and
+        -- keeps the OVERLAY syntax below the custom caret on the same frame.
+        syntax=edit:CreateFontString(
             "MegaMacro_FrameSyntaxText","OVERLAY","GameFontHighlightSmall"
         )
+        if syntax.SetDrawLayer then syntax:SetDrawLayer("OVERLAY",5) end
         syntax:SetJustifyH("LEFT")
         syntax:SetJustifyV("TOP")
         syntax:SetWordWrap(true)
         if syntax.SetNonSpaceWrap then syntax:SetNonSpaceWrap(true) end
+        if syntax.SetMaxLines then syntax:SetMaxLines(0) end
         if syntax.SetSpacing then syntax:SetSpacing(LINE_SPACING) end
         syntax:SetTextColor(1,1,1,1)
         edit.__BPMMSyntaxText=syntax
     end
 
-    EnsureSyntaxSurface(edit)
     local left,right,top,bottom=edit:GetTextInsets()
+    ApplyEditorFont(syntax)
+    local source=edit:GetText() or ""
+    local visualLineCount=1
+    if BuildVisualLines then
+        visualLineCount=#BuildVisualLines(edit,source)
+    else
+        local _,newlines=source:gsub("\n","")
+        visualLineCount=newlines+1
+    end
+    local lineHeight=GetEditorLineHeight
+        and GetEditorLineHeight(edit) or EDITOR_FONT_SIZE
+    local safeHeight=math.max(1,visualLineCount)*math.max(1,lineHeight)+2
     syntax:ClearAllPoints()
     syntax:SetPoint(
         "TOPLEFT",edit,"TOPLEFT",tonumber(left) or 0,-(tonumber(top) or 0)
     )
-    syntax:SetPoint(
-        "BOTTOMRIGHT",edit,"BOTTOMRIGHT",
-        -(tonumber(right) or 0),tonumber(bottom) or 0
+    -- Size this surface explicitly instead of bottom-anchoring it. A bounded
+    -- FontString can replace undisplayed lines with "..." even when the
+    -- underlying EditBox still contains them.
+    syntax:SetSize(
+        math.max(
+            1,
+            edit:GetWidth()-(tonumber(left) or 0)-(tonumber(right) or 0)
+        ),
+        math.max(
+            1,
+            edit:GetHeight()-(tonumber(top) or 0)-(tonumber(bottom) or 0),
+            safeHeight
+        )
     )
-    local path,size,flags=edit:GetFont()
-    if path then syntax:SetFont(path,size,flags) end
     syntax:Show()
     syntax:SetAlpha(1)
     return syntax
@@ -509,21 +613,73 @@ local function HideCaret()
     if caret.line then caret.line:Hide() end
 end
 
+local function GetOnePhysicalPixel(region)
+    local scale=region and region:GetEffectiveScale() or 1
+    if not scale or scale<=0 then scale=1 end
+
+    if _G.PixelUtil and PixelUtil.GetNearestPixelSize then
+        -- A zero UI-unit request with a one-pixel minimum resolves to exactly
+        -- one physical pixel at the region's current effective scale.
+        return PixelUtil.GetNearestPixelSize(0,scale,1)
+    end
+
+    if GetPhysicalScreenSize then
+        local _,physicalHeight=GetPhysicalScreenSize()
+        if physicalHeight and physicalHeight>0 then
+            return (768/physicalHeight)/scale
+        end
+    end
+    return 1
+end
+
+local function SetPixelSnappedPoint(region,relativeTo,x,y)
+    region:ClearAllPoints()
+    if _G.PixelUtil and PixelUtil.SetPoint then
+        PixelUtil.SetPoint(
+            region,
+            "TOPLEFT",
+            relativeTo,
+            "TOPLEFT",
+            x,
+            y
+        )
+    else
+        region:SetPoint("TOPLEFT",relativeTo,"TOPLEFT",x,y)
+    end
+end
+
 local function EnsureCaret(edit)
     if caret.edit==edit and caret.mask and caret.line then return end
 
     EnsureSyntaxText(edit)
 
-    local surface=EnsureSyntaxSurface(edit)
     caret.edit=edit
-    caret.mask=surface:CreateTexture(nil,"OVERLAY",nil,6)
+    -- These regions must share the EditBox's frame.  Keeping them on the
+    -- lower syntax surface leaves WoW's native caret visible above our mask.
+    -- Texture regions do not participate in hit testing, so clicks still go
+    -- directly to the EditBox.
+    caret.mask=edit:CreateTexture(nil,"OVERLAY",nil,6)
     caret.mask:SetColorTexture(unpack(BG))
-    caret.line=surface:CreateTexture(nil,"OVERLAY",nil,7)
+    if caret.mask.SetSnapToPixelGrid then
+        caret.mask:SetSnapToPixelGrid(true)
+    end
+    if caret.mask.SetTexelSnappingBias then
+        caret.mask:SetTexelSnappingBias(0)
+    end
+    caret.line=edit:CreateTexture(nil,"OVERLAY",nil,7)
     caret.line:SetColorTexture(unpack(TEXT))
+    if caret.line.SetSnapToPixelGrid then
+        caret.line:SetSnapToPixelGrid(true)
+    end
+    if caret.line.SetTexelSnappingBias then
+        caret.line:SetTexelSnappingBias(0)
+    end
     caret.elapsed=0
     caret.lit=true
     caret.positioned=false
     caret.x,caret.y,caret.width,caret.height=nil,nil,nil,nil
+    caret.lineX,caret.lineY,caret.lineHeight=nil,nil,nil
+    caret.measuredX,caret.effectiveScale=nil,nil
     HideCaret()
 end
 
@@ -548,34 +704,43 @@ local function RefreshCaretVisibility(edit)
     if caret.lit then caret.line:Show() else caret.line:Hide() end
 end
 
-local function PositionCaret(edit,x,y,width,height)
+local function PositionCaret(edit,x,y,width,height,visualX,visualY,visualHeight)
     EnsureCaret(edit)
     x=tonumber(x) or 0
     y=tonumber(y) or 0
-    width=math.max(1,tonumber(width) or 1)
+    width=math.max(0,tonumber(width) or 0)
     height=math.max(1,tonumber(height) or 1)
+    visualX=tonumber(visualX) or (x+(width/2))
+    visualY=tonumber(visualY) or y
+    visualHeight=math.max(1,tonumber(visualHeight) or height)
+    local physicalPixel=GetOnePhysicalPixel(caret.line)
+    local effectiveScale=caret.line:GetEffectiveScale() or 1
+    -- Bias the pixel-grid choice toward the first pixel after the glyph edge
+    -- without forcing a complete empty pixel at larger window scales.
+    local lineX=visualX+(physicalPixel/2)
     local moved=not caret.positioned or caret.x~=x or caret.y~=y
         or caret.width~=width or caret.height~=height
-    local desiredHeight=math.max(CARET_HEIGHT,height)
-    caret.mask:ClearAllPoints()
-    caret.mask:SetPoint("TOPLEFT",edit,"TOPLEFT",x,y)
-    caret.mask:SetSize(width,height)
+        or caret.lineX~=lineX or caret.lineY~=visualY
+        or caret.lineHeight~=visualHeight
+        or caret.effectiveScale~=effectiveScale
+    local desiredHeight=math.min(CARET_HEIGHT,visualHeight)
+    SetPixelSnappedPoint(caret.mask,edit,x,y)
+    caret.mask:SetSize(math.max(physicalPixel,width),height)
 
-    caret.line:ClearAllPoints()
-    caret.line:SetPoint(
-        "TOPLEFT",
-        edit,
-        "TOPLEFT",
-        x,
-        y+(desiredHeight-height)/2
-    )
-    caret.line:SetSize(CARET_WIDTH,desiredHeight)
+    -- WoW's native cursor rectangle follows the hidden EditBox text and does
+    -- not reliably match the Open Sans syntax surface on either axis. Keep
+    -- the mask on the native rectangle, but draw the themed caret immediately
+    -- after the measured Open Sans glyph edge and at the visual-row top.
+    SetPixelSnappedPoint(caret.line,edit,lineX,visualY)
+    caret.line:SetSize(physicalPixel,desiredHeight)
     if moved then
         caret.elapsed=0
         caret.lit=true
     end
     caret.positioned=true
     caret.x,caret.y,caret.width,caret.height=x,y,width,height
+    caret.lineX,caret.lineY,caret.lineHeight=lineX,visualY,visualHeight
+    caret.measuredX,caret.effectiveScale=visualX,effectiveScale
     RefreshCaretVisibility(edit)
 end
 
@@ -617,6 +782,11 @@ local function MakeNativeInputTransparent(edit)
     end
 end
 
+local function ShowSyntaxDisplay(edit)
+    MakeNativeInputTransparent(edit)
+    EnsureSyntaxText(edit):Show()
+end
+
 local function EnsureMeasurementText(edit)
     if not measurementFrame then
         measurementFrame=CreateFrame("Frame",nil,UIParent)
@@ -627,12 +797,17 @@ local function EnsureMeasurementText(edit)
         measurementText:SetWordWrap(false)
     end
 
-    local path,size,flags=edit:GetFont()
-    if path then
-        measurementText:SetFont(path,size,flags)
-    else
-        measurementText:SetFontObject("GameFontHighlightSmall")
+    -- Width and line-height metrics are rasterization-scale dependent. The
+    -- measurement surface must inherit the editor's effective scale instead
+    -- of UIParent's scale, otherwise caret drift grows whenever BetterMacro is
+    -- scaled below or above 100%.
+    if edit and measurementFrame:GetParent()~=edit then
+        measurementFrame:SetParent(edit)
+        measurementFrame:SetScale(1)
     end
+
+    ApplyEditorFont(measurementText)
+    if measurementText.SetSpacing then measurementText:SetSpacing(LINE_SPACING) end
     return measurementText
 end
 
@@ -640,6 +815,23 @@ local function MeasureTextWidth(edit,text)
     local measure=EnsureMeasurementText(edit)
     measure:SetText(text or "")
     return measure:GetStringWidth() or 0
+end
+
+-- Font size is not the same thing as the vertical line advance. Open Sans at
+-- 14 px reports a different rendered step on some clients, which previously
+-- accumulated into a one-row mouse error. Measure the actual two-line delta.
+GetEditorLineHeight=function(edit)
+    local measure=EnsureMeasurementText(edit)
+    measure:SetText("Ag")
+    local oneLine=tonumber(measure:GetStringHeight()) or 0
+    measure:SetText("Ag\nAg")
+    local twoLines=tonumber(measure:GetStringHeight()) or 0
+    local advance=twoLines-oneLine
+    measure:SetText("")
+    if advance>0 then return advance end
+
+    local _,fontSize=edit:GetFont()
+    return math.max(1,tonumber(fontSize) or EDITOR_FONT_SIZE)
 end
 
 -- EditBox cursor positions are byte offsets. Keep calculated offsets on full
@@ -744,7 +936,7 @@ local function AddWrappedLine(edit,visualLines,line,lineStart,maximumWidth)
     end
 end
 
-local function BuildVisualLines(edit,source)
+BuildVisualLines=function(edit,source)
     local left,right=edit:GetTextInsets()
     local maximumWidth=math.max(
         1,
@@ -779,63 +971,6 @@ local function HideSelectionHighlights()
     for _,texture in ipairs(selectionHighlights) do texture:Hide() end
 end
 
-local function GetSelectionHighlight(edit,index)
-    local texture=selectionHighlights[index]
-    if not texture then
-        local owner=EnsureSyntaxSurface(edit)
-        texture=owner:CreateTexture(nil,"ARTWORK",nil,6)
-        texture:SetColorTexture(unpack(HIGHLIGHT))
-        selectionHighlights[index]=texture
-    end
-    texture:Show()
-    return texture
-end
-
-local function ShowSelectionHighlights(edit,anchor,current)
-    HideSelectionHighlights()
-    if not edit or anchor==current then return end
-
-    local first=math.min(anchor,current)
-    local last=math.max(anchor,current)
-    local source=edit:GetText() or ""
-    local lines=BuildVisualLines(edit,source)
-    local leftInset,_,topInset=edit:GetTextInsets()
-    local _,fontSize=edit:GetFont()
-    local lineHeight=(tonumber(fontSize) or 12)+LINE_SPACING
-    local used=0
-
-    for index,line in ipairs(lines) do
-        local lineFirst=line.start
-        local lineLast=line.start+#line.text
-        local segmentFirst=math.max(first,lineFirst)
-        local segmentLast=math.min(last,lineLast)
-        local highlightNewline=segmentFirst==segmentLast
-            and first<=lineLast and last>lineLast
-
-        if segmentFirst<segmentLast or highlightNewline then
-            local before=math.max(0,segmentFirst-lineFirst)
-            local through=math.max(before,segmentLast-lineFirst)
-            local x1=MeasureTextWidth(edit,string.sub(line.text,1,before))
-            local x2=MeasureTextWidth(edit,string.sub(line.text,1,through))
-            used=used+1
-            local texture=GetSelectionHighlight(edit,used)
-            texture:ClearAllPoints()
-            texture:SetPoint(
-                "TOPLEFT",
-                edit,
-                "TOPLEFT",
-                (tonumber(leftInset) or 0)+x1,
-                -(tonumber(topInset) or 0)-(index-1)*lineHeight
-            )
-            texture:SetSize(math.max(3,x2-x1),lineHeight)
-        end
-    end
-
-    for index=used+1,#selectionHighlights do
-        selectionHighlights[index]:Hide()
-    end
-end
-
 local function FindOffsetInLine(edit,line,mouseX)
     if mouseX<=0 or line.text=="" then return line.start end
 
@@ -854,11 +989,81 @@ local function FindOffsetInLine(edit,line,mouseX)
     return line.start+#line.text
 end
 
-local function GetMouseTextOffset(edit)
+local function GetVisualLineIndex(lines,position)
+    local lineIndex=1
+    for index,line in ipairs(lines) do
+        if line.start>position then break end
+        lineIndex=index
+    end
+    return math.max(1,math.min(#lines,lineIndex))
+end
+
+local function GetTextPositionGeometry(edit,position,lines,lineIndex)
+    if not edit then return end
+    local source=edit:GetText() or ""
+    position=math.max(0,math.min(#source,tonumber(position) or 0))
+    lines=lines or BuildVisualLines(edit,source)
+
+    -- For keyboard movement, choose the last visual row whose byte offset has
+    -- begun. This puts a wrapped-line boundary at the start of the new row,
+    -- while a real newline still leaves the preceding offset on the old row.
+    if not lineIndex then lineIndex=GetVisualLineIndex(lines,position) end
+
+    lineIndex=math.max(1,math.min(#lines,lineIndex))
+    local line=lines[lineIndex]
+    local withinLine=math.max(0,math.min(#line.text,position-line.start))
+    local leftInset,_,topInset=edit:GetTextInsets()
+    local lineHeight=GetEditorLineHeight(edit)
+    local caretX=(tonumber(leftInset) or 0)
+        +MeasureTextWidth(edit,string.sub(line.text,1,withinLine))
+    local caretY=-(tonumber(topInset) or 0)-(lineIndex-1)*lineHeight
+    return caretX,caretY,1,lineHeight
+end
+
+local function ResetVerticalNavigation()
+    verticalNavigation.edit=nil
+    verticalNavigation.preferredX=nil
+    verticalNavigation.serial=verticalNavigation.serial+1
+end
+
+local function GetVerticalDestination(edit,position,direction,preferredX)
+    local source=edit:GetText() or ""
+    position=math.max(0,math.min(#source,tonumber(position) or 0))
+    local lines=BuildVisualLines(edit,source)
+    local lineIndex=GetVisualLineIndex(lines,position)
+    local line=lines[lineIndex]
+    local withinLine=math.max(0,math.min(#line.text,position-line.start))
+
+    -- Retain the rendered horizontal column across consecutive vertical moves.
+    -- This also behaves naturally with the proportional Open Sans font and
+    -- returns to the original column after crossing a shorter line.
+    if preferredX==nil then
+        preferredX=MeasureTextWidth(
+            edit,
+            string.sub(line.text,1,withinLine)
+        )
+    end
+
+    local targetLineIndex=math.max(
+        1,
+        math.min(#lines,lineIndex+direction)
+    )
+    if targetLineIndex==lineIndex then
+        return position,preferredX,lineIndex,targetLineIndex
+    end
+
+    local destination=FindOffsetInLine(
+        edit,
+        lines[targetLineIndex],
+        preferredX
+    )
+    return destination,preferredX,lineIndex,targetLineIndex
+end
+
+local function GetMouseTextPosition(edit)
     if not edit or not GetCursorPosition then return end
-    local scroll=edit:GetParent()
-    if not scroll then return end
-    local leftEdge,topEdge=scroll:GetLeft(),scroll:GetTop()
+    local syntax=edit.__BPMMSyntaxText or EnsureSyntaxText(edit)
+    local leftEdge,topEdge=syntax:GetLeft(),syntax:GetTop()
     if not leftEdge or not topEdge then return end
 
     local cursorX,cursorY=GetCursorPosition()
@@ -866,17 +1071,55 @@ local function GetMouseTextOffset(edit)
     if not scale or scale==0 then return end
     cursorX,cursorY=cursorX/scale,cursorY/scale
 
-    local leftInset,_,topInset=edit:GetTextInsets()
-    local mouseX=cursorX-leftEdge-(tonumber(leftInset) or 0)
-    local mouseY=topEdge-cursorY+(scroll:GetVerticalScroll() or 0)
-        -(tonumber(topInset) or 0)
+    -- Measure from the rendered coloured surface itself. Its anchor already
+    -- contains the EditBox insets and the ScrollFrame's current child offset.
+    local mouseX=cursorX-leftEdge
+    local mouseY=topEdge-cursorY
 
-    local _,fontSize=edit:GetFont()
-    local lineHeight=(tonumber(fontSize) or 12)+LINE_SPACING
+    local lineHeight=GetEditorLineHeight(edit)
     local lines=BuildVisualLines(edit,edit:GetText() or "")
     local lineIndex=math.floor(math.max(0,mouseY)/math.max(1,lineHeight))+1
     lineIndex=math.max(1,math.min(#lines,lineIndex))
-    return FindOffsetInLine(edit,lines[lineIndex],mouseX)
+    local line=lines[lineIndex]
+    local offset=FindOffsetInLine(edit,line,mouseX)
+    local caretX,caretY,width,height=GetTextPositionGeometry(
+        edit,
+        offset,
+        lines,
+        lineIndex
+    )
+    return offset,caretX,caretY,width,height,lineIndex,mouseX,mouseY,lineHeight
+end
+
+local function PublishNativeCaret(edit,position)
+    if not edit or position==nil then return end
+    local source=edit:GetText() or ""
+    position=math.max(0,math.min(#source,tonumber(position) or 0))
+
+    -- Setting the same cursor offset may not emit OnCursorChanged. Briefly
+    -- move to an adjacent UTF-8 boundary, then restore the requested offset so
+    -- WoW publishes the exact native rectangle used by the custom caret.
+    if edit:GetCursorPosition()==position and #source>0 then
+        local alternate
+        if position>0 then
+            alternate=PreviousCharacterBoundary(source,position)
+        else
+            alternate=NextCharacterBoundary(source,position)
+        end
+        if alternate~=position then edit:SetCursorPosition(alternate) end
+    end
+    edit:SetCursorPosition(position)
+end
+
+local function SetAuthoritativeCursor(edit,position,x,y,width,height)
+    if not edit or position==nil then return end
+    local length=#(edit:GetText() or "")
+    position=math.max(0,math.min(length,tonumber(position) or 0))
+    edit:SetFocus()
+    PublishNativeCaret(edit,position)
+    edit:HighlightText(position,position)
+    HideSelectionHighlights()
+    RefreshCaretVisibility(edit)
 end
 
 local function ApplySelection(edit,anchor,current)
@@ -888,14 +1131,19 @@ local function ApplySelection(edit,anchor,current)
     edit:SetFocus()
     edit:SetCursorPosition(current)
     edit:HighlightText(math.min(anchor,current),math.max(anchor,current))
-    ShowSelectionHighlights(edit,anchor,current)
+    -- While focused, both the glyphs and the highlight come from this native
+    -- EditBox. One renderer means their geometry cannot diverge.
+    HideSelectionHighlights()
+    if debugState.enabled then
+        debugState.applyCalls=debugState.applyCalls+1
+    end
     RefreshCaretVisibility(edit)
 end
 
 local function QueueSelectionReapply(edit,anchor,current,serial)
     local function Reapply()
         if selection.serial~=serial or selection.dragging
-            or selection.edit~=edit or not edit:HasFocus()
+            or selection.edit~=edit
         then
             return
         end
@@ -905,17 +1153,144 @@ local function QueueSelectionReapply(edit,anchor,current,serial)
     C_Timer.After(.05,Reapply)
 end
 
+local KEYBOARD_SELECTION_KEYS={
+    LEFT=true,
+    RIGHT=true,
+    UP=true,
+    DOWN=true,
+    HOME=true,
+    END=true,
+}
+
+local function QueueKeyboardSelectionRefresh(edit,key)
+    if not KEYBOARD_SELECTION_KEYS[key] then return end
+
+    selection.serial=selection.serial+1
+    local serial=selection.serial
+    selection.dragging=false
+    local shifted=type(_G.IsShiftKeyDown)=="function" and IsShiftKeyDown()
+
+    if not shifted then
+        selection.edit=edit
+        selection.button="Keyboard"
+        selection.anchor=edit:GetCursorPosition()
+        selection.current=selection.anchor
+        HideSelectionHighlights()
+        C_Timer.After(0,function()
+            if selection.serial~=serial or selection.edit~=edit
+                or not edit:HasFocus()
+            then
+                return
+            end
+            local current=edit:GetCursorPosition()
+            selection.anchor=current
+            selection.current=current
+            HideSelectionHighlights()
+            RefreshCaretVisibility(edit)
+        end)
+        return
+    end
+
+    local anchor=edit:GetCursorPosition()
+    if selection.edit==edit and selection.anchor~=nil
+        and selection.current~=nil and selection.anchor~=selection.current
+    then
+        anchor=selection.anchor
+    end
+    selection.edit=edit
+    selection.button="Keyboard"
+    selection.anchor=anchor
+    selection.current=edit:GetCursorPosition()
+
+    -- The EditBox updates its logical cursor after OnKeyDown. Read that final
+    -- position on the next UI turn, then mirror the native selection exactly.
+    C_Timer.After(0,function()
+        if selection.serial~=serial or selection.edit~=edit
+            or not edit:HasFocus()
+        then
+            return
+        end
+        local current=edit:GetCursorPosition()
+        selection.current=current
+        ApplySelection(edit,anchor,current)
+    end)
+end
+
+local function HandleVerticalCaretKey(edit,key)
+    if key~="UP" and key~="DOWN" then return false end
+
+    local start=edit:GetCursorPosition() or 0
+    local preferredX
+    if verticalNavigation.edit==edit then
+        preferredX=verticalNavigation.preferredX
+    end
+    local destination,measuredX,fromLine,toLine=GetVerticalDestination(
+        edit,
+        start,
+        key=="UP" and -1 or 1,
+        preferredX
+    )
+    local shifted=type(_G.IsShiftKeyDown)=="function" and IsShiftKeyDown()
+    local anchor=start
+    if shifted and selection.edit==edit and selection.anchor~=nil
+        and selection.current~=nil and selection.anchor~=selection.current
+    then
+        anchor=selection.anchor
+    end
+
+    selection.serial=selection.serial+1
+    local selectionSerial=selection.serial
+    selection.dragging=false
+    selection.edit=edit
+    selection.button="Keyboard"
+    selection.anchor=shifted and anchor or destination
+    selection.current=destination
+
+    verticalNavigation.serial=verticalNavigation.serial+1
+    local navigationSerial=verticalNavigation.serial
+    verticalNavigation.edit=edit
+    verticalNavigation.preferredX=measuredX
+
+    local function ApplyVerticalMove()
+        if verticalNavigation.serial~=navigationSerial
+            or selection.serial~=selectionSerial
+            or selection.edit~=edit or not edit:HasFocus()
+        then
+            return
+        end
+        if shifted then
+            ApplySelection(edit,anchor,destination)
+        else
+            SetAuthoritativeCursor(edit,destination)
+            selection.anchor=destination
+            selection.current=destination
+        end
+        verticalNavigation.edit=edit
+        verticalNavigation.preferredX=measuredX
+    end
+
+    -- Apply immediately, then once on the next UI turn. The second pass wins
+    -- over the EditBox's built-in key processing without changing how normal
+    -- typing, Left/Right, Home, End, or Shift-selection behave.
+    ApplyVerticalMove()
+    C_Timer.After(0,ApplyVerticalMove)
+    if debugState.enabled then
+        DebugLog(
+            "KEY %s from=%d line=%d to=%d line=%d x=%.1f shift=%s",
+            key,start,fromLine,destination,toLine,measuredX or 0,
+            tostring(shifted)
+        )
+    end
+    return true
+end
+
 local function CancelSelectionGesture(clearDoubleClick)
     HideSelectionHighlights()
     nativeLeft.down=false
     nativeLeft.edit=nil
     nativeLeft.anchor=nil
     nativeLeft.current=nil
-    nativeLeft.fallbackAnchor=nil
-    nativeLeft.initialCursor=nil
-    nativeLeft.usingFallback=false
     nativeLeft.updatingCursor=false
-    nativeLeft.serial=nativeLeft.serial+1
     selection.dragging=false
     selection.edit=nil
     selection.button=nil
@@ -931,7 +1306,8 @@ end
 
 local function BeginMouseSelection(edit,button)
     if button~="LeftButton" and button~="RightButton" then return end
-    local position=GetMouseTextOffset(edit)
+    ResetVerticalNavigation(edit)
+    local position,x,y,width,height=GetMouseTextPosition(edit)
     if position==nil then return end
 
     selection.serial=selection.serial+1
@@ -968,186 +1344,211 @@ end
 
 local function MirrorNativeLeftSelection(edit)
     if not nativeLeft.down or nativeLeft.edit~=edit then return false end
-    local length=#(edit:GetText() or "")
-    local position=math.max(
-        0,
-        math.min(length,edit:GetCursorPosition() or 0)
-    )
-    if nativeLeft.usingFallback and not nativeLeft.updatingCursor then
-        local estimated=GetMouseTextOffset(edit)
-        if estimated~=nil and estimated~=position then
-            nativeLeft.updatingCursor=true
-            edit:SetCursorPosition(estimated)
-            nativeLeft.updatingCursor=false
-            position=estimated
-        end
+    local position,x,y,width,height=GetMouseTextPosition(edit)
+    if position==nil then return false end
+    if not nativeLeft.updatingCursor then
+        nativeLeft.updatingCursor=true
+        edit:SetCursorPosition(position)
+        nativeLeft.updatingCursor=false
     end
-    if nativeLeft.anchor==nil then nativeLeft.anchor=position end
     nativeLeft.current=position
 
     selection.edit=edit
     selection.button="LeftButton"
     selection.anchor=nativeLeft.anchor
     selection.current=position
-    ShowSelectionHighlights(edit,selection.anchor,selection.current)
+    if debugState.enabled and debugState.lastPosition~=position then
+        debugState.dragUpdates=debugState.dragUpdates+1
+        debugState.lastPosition=position
+    end
+    -- Preserve the EditBox's real selection range. The focused editor displays
+    -- native glyphs, so its own highlight is the single visible background.
+    edit:HighlightText(
+        math.min(selection.anchor,selection.current),
+        math.max(selection.anchor,selection.current)
+    )
+    HideSelectionHighlights()
     RefreshCaretVisibility(edit)
     return selection.anchor~=selection.current
 end
 
+local function RestoreNativeLeftGesture(edit)
+    if nativeLeft.down and nativeLeft.edit==edit then return true end
+    if leftMouseDownAnchor==nil then return false end
+
+    nativeLeft.down=true
+    nativeLeft.edit=edit
+    nativeLeft.anchor=leftMouseDownAnchor
+    nativeLeft.current=leftMouseDownAnchor
+    nativeLeft.updatingCursor=false
+    selection.edit=edit
+    selection.button="LeftButton"
+    selection.anchor=leftMouseDownAnchor
+    selection.current=leftMouseDownAnchor
+    DebugLog("RESTORED anchor=%d after an external state reset",leftMouseDownAnchor)
+    return true
+end
+
 local function BeginNativeLeftClick(edit)
+    ResetVerticalNavigation(edit)
     if GetCursorPosition then
         leftMouseDownX,leftMouseDownY=GetCursorPosition()
     else
         leftMouseDownX,leftMouseDownY=nil,nil
     end
-    nativeLeft.serial=nativeLeft.serial+1
-    local serial=nativeLeft.serial
+    local position,x,y,width,height,lineIndex,_,mouseY,lineHeight=
+        GetMouseTextPosition(edit)
+    if position==nil then
+        leftMouseDownX,leftMouseDownY,leftMouseDownAnchor=nil,nil,nil
+        return
+    end
+    leftMouseDownAnchor=position
+    if debugState.enabled then
+        ResetDebugGesture()
+        debugState.downEvents=1
+        debugState.lastPosition=position
+        DebugLog(
+            "DOWN anchor=%d line=%d localY=%.1f advance=%.2f cursor=%d focus=%s mouse=%s",
+            position,lineIndex or -1,tonumber(mouseY) or -1,
+            tonumber(lineHeight) or -1,
+            edit:GetCursorPosition() or -1,
+            tostring(edit:HasFocus()),DebugMouseFocusLabel()
+        )
+    end
     nativeLeft.down=true
     nativeLeft.edit=edit
-    nativeLeft.anchor=nil
-    nativeLeft.current=nil
-    nativeLeft.fallbackAnchor=GetMouseTextOffset(edit)
-    nativeLeft.initialCursor=edit:GetCursorPosition() or 0
-    nativeLeft.usingFallback=false
+    nativeLeft.anchor=position
+    nativeLeft.current=position
     nativeLeft.updatingCursor=false
-
-    -- OnMouseDown fires before some clients publish the new native caret.
-    -- Capture it on the next UI turn if OnCursorChanged did not do so first.
-    C_Timer.After(0,function()
-        if nativeLeft.down and nativeLeft.edit==edit
-            and nativeLeft.serial==serial and nativeLeft.anchor==nil
-        then
-            local published=edit:GetCursorPosition() or 0
-            if published==nativeLeft.initialCursor
-                and nativeLeft.fallbackAnchor~=nil
-            then
-                nativeLeft.usingFallback=true
-                nativeLeft.anchor=nativeLeft.fallbackAnchor
-                nativeLeft.current=nativeLeft.fallbackAnchor
-                nativeLeft.updatingCursor=true
-                edit:SetCursorPosition(nativeLeft.fallbackAnchor)
-                nativeLeft.updatingCursor=false
-            end
-            MirrorNativeLeftSelection(edit)
-        end
-    end)
+    selection.edit=edit
+    selection.button="LeftButton"
+    selection.anchor=position
+    selection.current=position
+    HideSelectionHighlights()
+    SetAuthoritativeCursor(edit,position,x,y,width,height)
 end
 
 local function CompleteNativeLeftClick(edit)
+    if leftMouseDownAnchor==nil
+        and (not nativeLeft.down or nativeLeft.edit~=edit)
+    then
+        return
+    end
     local clickTime=(GetTime and GetTime()) or 0
     local upX,upY
     if GetCursorPosition then upX,upY=GetCursorPosition() end
     local moved=leftMouseDownX and upX and (
         math.abs(upX-leftMouseDownX)>3 or math.abs(upY-leftMouseDownY)>3
     )
-    local mouseUpOffset=GetMouseTextOffset(edit)
-    leftMouseDownX,leftMouseDownY=nil,nil
-
-    if nativeLeft.edit==edit then MirrorNativeLeftSelection(edit) end
-    local trackedAnchor=nativeLeft.anchor
-    local trackedCurrent=nativeLeft.current
-    local fallbackAnchor=nativeLeft.fallbackAnchor
-    local initialCursor=nativeLeft.initialCursor
-    local nativeAnchor=nativeLeft.anchor or nativeLeft.fallbackAnchor
-        or edit:GetCursorPosition() or 0
-    local nativeCurrent=nativeLeft.current
-        or (moved and mouseUpOffset) or edit:GetCursorPosition() or 0
-    local fallbackRange=false
-    if moved and fallbackAnchor~=nil and mouseUpOffset~=nil
-        and (trackedAnchor==nil or (
-            trackedAnchor==trackedCurrent and trackedAnchor==initialCursor
-        ))
-    then
-        nativeAnchor=fallbackAnchor
-        nativeCurrent=mouseUpOffset
-        fallbackRange=true
-    end
-    if trackedAnchor~=nil and trackedCurrent~=nil
-        and trackedAnchor~=trackedCurrent
-    then
-        moved=true
+    moved=moved and true or false
+    local position,x,y,width,height,lineIndex,_,mouseY,lineHeight=
+        GetMouseTextPosition(edit)
+    local anchor=nativeLeft.anchor or leftMouseDownAnchor or position or 0
+    position=position or nativeLeft.current or anchor
+    leftMouseDownX,leftMouseDownY,leftMouseDownAnchor=nil,nil,nil
+    if anchor~=position then moved=true end
+    if debugState.enabled then
+        debugState.upEvents=debugState.upEvents+1
+        DebugLog(
+            "UP anchor=%d current=%d line=%d localY=%.1f advance=%.2f moved=%s updates=%d mouse=%s",
+            anchor,position,lineIndex or -1,tonumber(mouseY) or -1,
+            tonumber(lineHeight) or -1,tostring(moved),debugState.dragUpdates,
+            DebugMouseFocusLabel()
+        )
     end
     nativeLeft.down=false
     nativeLeft.edit=nil
     nativeLeft.anchor=nil
     nativeLeft.current=nil
-    nativeLeft.fallbackAnchor=nil
-    nativeLeft.initialCursor=nil
-    nativeLeft.usingFallback=false
     nativeLeft.updatingCursor=false
 
-    -- Mouse-up is the first point where WoW's native EditBox caret is final.
-    -- Reading it one frame later retains native click/drag behavior and makes
-    -- word selection use the exact rendered character rather than estimates.
-    C_Timer.After(0,function()
-        if not edit:IsVisible() then return end
-        local position=math.max(
-            0,
-            math.min(#(edit:GetText() or ""),edit:GetCursorPosition() or 0)
-        )
-        if not moved and fallbackAnchor~=nil and initialCursor~=nil
-            and position==initialCursor and fallbackAnchor~=position
-        then
-            position=fallbackAnchor
-            edit:SetCursorPosition(position)
-        end
-        nativeCurrent=math.max(
-            0,
-            math.min(#(edit:GetText() or ""),nativeCurrent)
-        )
-        nativeAnchor=math.max(
-            0,
-            math.min(#(edit:GetText() or ""),nativeAnchor)
-        )
-        if moved and not fallbackRange then nativeCurrent=position end
-        selection.serial=selection.serial+1
-        selection.dragging=false
-        selection.edit=edit
-        selection.button="LeftButton"
+    selection.serial=selection.serial+1
+    local serial=selection.serial
+    selection.dragging=false
+    selection.edit=edit
+    selection.button="LeftButton"
 
-        if moved then
-            selection.anchor=nativeAnchor
-            selection.current=nativeCurrent
-            local serial=selection.serial
-            ApplySelection(edit,nativeAnchor,nativeCurrent)
-            QueueSelectionReapply(edit,nativeAnchor,nativeCurrent,serial)
-            selection.lastClickTime=0
-            selection.lastClickPosition=nil
-            selection.lastClickButton=nil
-            RefreshCaretVisibility(edit)
+    if moved and anchor~=position then
+        selection.anchor=anchor
+        selection.current=position
+        ApplySelection(edit,anchor,position)
+        QueueSelectionReapply(edit,anchor,position,serial)
+        selection.lastClickTime=0
+        selection.lastClickPosition=nil
+        selection.lastClickButton=nil
+        if debugState.enabled then
+            C_Timer.After(.12,function()
+                DebugLog(
+                    "RESULT range=%d..%d cursor=%d apply=%d mirror=%d focus=%s releaseMissed=%s",
+                    selection.anchor or -1,selection.current or -1,
+                    edit:GetCursorPosition() or -1,debugState.applyCalls,
+                    CountShownSelectionHighlights(),
+                    tostring(edit:HasFocus()),tostring(debugState.releaseMissed)
+                )
+            end)
+        end
+        return
+    end
+
+    local source=edit:GetText() or ""
+    local wordStart,wordEnd=FindWordBounds(source,position)
+    local lastPosition=selection.lastClickPosition
+    local isDoubleClick=wordStart and wordEnd and lastPosition~=nil
+        and clickTime-selection.lastClickTime<=DOUBLE_CLICK_SECONDS
+        and selection.lastClickButton=="LeftButton"
+        and lastPosition>=wordStart and lastPosition<=wordEnd
+
+    selection.lastClickTime=clickTime
+    selection.lastClickPosition=position
+    selection.lastClickButton="LeftButton"
+    selection.anchor=position
+    selection.current=position
+
+    if isDoubleClick then
+        selection.lastClickTime=0
+        selection.lastClickPosition=nil
+        selection.lastClickButton=nil
+        selection.anchor=wordStart
+        selection.current=wordEnd
+        ApplySelection(edit,wordStart,wordEnd)
+        QueueSelectionReapply(edit,wordStart,wordEnd,serial)
+        return
+    end
+
+    HideSelectionHighlights()
+    caret.elapsed=0
+    caret.lit=true
+    SetAuthoritativeCursor(edit,position,x,y,width,height)
+
+    -- A proxy click can clear EditBox focus after its handler returns. Restore
+    -- the cursor/focus after that default processing, then once more after the
+    -- short click-settle window so the custom blink timer remains active.
+    local function ReassertClick()
+        if not edit:IsVisible()
+            or selection.serial~=serial
+            or selection.anchor~=selection.current
+        then
             return
         end
-
-        local source=edit:GetText() or ""
-        local wordStart,wordEnd=FindWordBounds(source,position)
-        local lastPosition=selection.lastClickPosition
-        local isDoubleClick=wordStart and wordEnd and lastPosition~=nil
-            and clickTime-selection.lastClickTime<=DOUBLE_CLICK_SECONDS
-            and selection.lastClickButton=="LeftButton"
-            and lastPosition>=wordStart and lastPosition<=wordEnd
-
-        selection.lastClickTime=clickTime
-        selection.lastClickPosition=position
-        selection.lastClickButton="LeftButton"
-        selection.anchor=position
-        selection.current=position
-
-        if isDoubleClick then
-            local serial=selection.serial
-            selection.lastClickTime=0
-            selection.lastClickPosition=nil
-            selection.lastClickButton=nil
-            selection.anchor=wordStart
-            selection.current=wordEnd
-            ApplySelection(edit,wordStart,wordEnd)
-            QueueSelectionReapply(edit,wordStart,wordEnd,serial)
-        else
-            HideSelectionHighlights()
-            caret.elapsed=0
-            caret.lit=true
-            RefreshCaretVisibility(edit)
-        end
-    end)
+        SetAuthoritativeCursor(edit,position,x,y,width,height)
+    end
+    C_Timer.After(0,ReassertClick)
+    C_Timer.After(.05,ReassertClick)
+    if debugState.enabled then
+        C_Timer.After(.12,function()
+            DebugLog(
+                "CLICK cursor=%d focus=%s native=(%.1f,%.1f %.1fx%.1f) measuredX=%.1f visual=(%.1f,%.1f x%.1f) scale=%.3f lit=%s",
+                edit:GetCursorPosition() or -1,tostring(edit:HasFocus()),
+                tonumber(caret.x) or -1,tonumber(caret.y) or -1,
+                tonumber(caret.width) or -1,tonumber(caret.height) or -1,
+                tonumber(caret.measuredX) or -1,
+                tonumber(caret.lineX) or -1,tonumber(caret.lineY) or -1,
+                tonumber(caret.lineHeight) or -1,
+                tonumber(caret.effectiveScale) or -1,
+                tostring(caret.lit)
+            )
+        end)
+    end
 end
 
 local function EndMouseSelection(edit,button)
@@ -1157,7 +1558,7 @@ local function EndMouseSelection(edit,button)
         return
     end
 
-    local position=GetMouseTextOffset(edit)
+    local position,x,y,width,height=GetMouseTextPosition(edit)
     if position~=nil then selection.current=position end
     selection.dragging=false
     ApplySelection(edit,selection.anchor,selection.current)
@@ -1181,7 +1582,7 @@ local function UpdateMouseSelection(edit)
         return
     end
 
-    local position=GetMouseTextOffset(edit)
+    local position,x,y,width,height=GetMouseTextPosition(edit)
     if position==nil or position==selection.current then return end
     selection.current=position
     ApplySelection(edit,selection.anchor,selection.current)
@@ -1227,15 +1628,62 @@ local function InstallMousePolling(scroll,edit)
     scroll:HookScript("OnUpdate",function()
         if not edit:IsVisible() then return end
         if IsMouseButtonDown and IsMouseButtonDown("LeftButton") then
-            MirrorNativeLeftSelection(edit)
+            if RestoreNativeLeftGesture(edit) then
+                MirrorNativeLeftSelection(edit)
+            end
+        elseif nativeLeft.down or leftMouseDownAnchor~=nil then
+            if debugState.enabled and not debugState.releaseMissed then
+                debugState.releaseMissed=true
+                DebugLog("RELEASE FALLBACK: completing outside mouse proxy")
+            end
+            CompleteNativeLeftClick(edit)
         end
         PollRightMouseSelection(edit)
         UpdateMouseSelection(edit)
     end)
     scroll:HookScript("OnHide",function()
         rightMouseWasDown=false
+        leftMouseDownX,leftMouseDownY,leftMouseDownAnchor=nil,nil,nil
         CancelSelectionGesture(true)
     end)
+end
+
+local function EnsureMouseProxy(scroll,edit)
+    local proxy=scroll.__BPMMEditorMouseProxy
+    if not proxy then
+        proxy=CreateFrame("Frame","BetterBindMacroEditorMouseProxy",scroll)
+        scroll.__BPMMEditorMouseProxy=proxy
+        proxy:EnableMouse(true)
+        if proxy.SetMouseClickEnabled then proxy:SetMouseClickEnabled(true) end
+        if proxy.SetMouseMotionEnabled then proxy:SetMouseMotionEnabled(true) end
+        proxy:EnableMouseWheel(true)
+    end
+
+    proxy:ClearAllPoints()
+    proxy:SetAllPoints(scroll)
+    proxy:SetFrameStrata(EDITOR_STRATA)
+    proxy:SetFrameLevel(edit:GetFrameLevel()+10)
+    proxy:SetScript("OnMouseDown",function(_,button)
+        if button=="LeftButton" then
+            BeginNativeLeftClick(edit)
+        elseif button=="RightButton" then
+            rightMouseWasDown=true
+            BeginMouseSelection(edit,button)
+        end
+    end)
+    proxy:SetScript("OnMouseUp",function(_,button)
+        if button=="LeftButton" then
+            CompleteNativeLeftClick(edit)
+        elseif button=="RightButton" then
+            rightMouseWasDown=false
+            EndMouseSelection(edit,button)
+        end
+    end)
+    proxy:SetScript("OnMouseWheel",function(_,delta)
+        ScrollEditor(edit,delta)
+    end)
+    proxy:Show()
+    return proxy
 end
 
 local function UpdateScrollChild(edit)
@@ -1243,14 +1691,16 @@ local function UpdateScrollChild(edit)
     local scroll=edit:GetParent()
     if not scroll then return end
 
-    local _,fontSize=edit:GetFont()
-    local lineHeight=(tonumber(fontSize) or 12)+LINE_SPACING
+    local lineHeight=GetEditorLineHeight(edit)
     local textRegion=GetTextRegion(edit)
     local measuredHeight=textRegion and textRegion:GetStringHeight() or 0
-    local lineCount=edit.GetNumLines and edit:GetNumLines() or 1
+    local visualLineCount=#BuildVisualLines(edit,edit:GetText() or "")
     local _,_,topInset,bottomInset=edit:GetTextInsets()
     local insets=(tonumber(topInset) or 0)+(tonumber(bottomInset) or 0)+2
-    local contentHeight=math.max(measuredHeight,(tonumber(lineCount) or 1)*lineHeight)+insets
+    local contentHeight=math.max(
+        measuredHeight,
+        math.max(1,visualLineCount)*lineHeight
+    )+insets
 
     edit:SetHeight(math.max(1,scroll:GetHeight(),math.ceil(contentHeight)))
     EnsureSyntaxText(edit)
@@ -1267,41 +1717,111 @@ local function QueueScrollChildUpdate(edit)
     end)
 end
 
-local function ScrollEditor(edit,delta)
+ScrollEditor=function(edit,delta)
     if not edit then return end
     local scroll=edit:GetParent()
     if not scroll then return end
 
     UpdateScrollChild(edit)
-    local _,fontSize=edit:GetFont()
-    local step=((tonumber(fontSize) or 12)+LINE_SPACING)*WHEEL_LINES
+    local step=GetEditorLineHeight(edit)*WHEEL_LINES
     local maximum=math.max(0,scroll:GetVerticalScrollRange() or 0)
     local current=math.max(0,scroll:GetVerticalScroll() or 0)
     local target=current-(tonumber(delta) or 0)*step
     scroll:SetVerticalScroll(math.max(0,math.min(maximum,target)))
 end
 
+local function RefreshCharacterCounter(edit)
+    if not edit then return end
+    local scroll=edit:GetParent()
+    local counter=scroll and scroll.__BPMMCharacterCounter
+    if not counter then return end
+
+    local used=edit.GetNumLetters and edit:GetNumLetters()
+        or #(edit:GetText() or "")
+    local maximum=tonumber(_G.MegaMacroCodeMaxLength) or 250
+    used=tonumber(used) or 0
+    counter:SetFormattedText("%d / %d",used,maximum)
+    if used>maximum then
+        counter:SetTextColor(1,.28,.28,1)
+    elseif used==maximum then
+        counter:SetTextColor(1,.78,.20,1)
+    else
+        counter:SetTextColor(.62,.66,.72,1)
+    end
+    counter:Show()
+end
+
+local function EnsureCharacterCounter(edit)
+    if not edit then return end
+    local scroll=edit:GetParent()
+    if not scroll then return end
+    local counter=scroll.__BPMMCharacterCounter
+    if not counter then
+        counter=scroll:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
+        counter:SetDrawLayer("OVERLAY",7)
+        counter:SetPoint("BOTTOMRIGHT",scroll,"BOTTOMRIGHT",-8,6)
+        counter:SetJustifyH("RIGHT")
+        counter:SetShadowColor(unpack(FONT_SHADOW))
+        counter:SetShadowOffset(0,0)
+        scroll.__BPMMCharacterCounter=counter
+    end
+    edit.__BPMMRefreshCharacterCounter=RefreshCharacterCounter
+    RefreshCharacterCounter(edit)
+end
+
 local function ForwardTextChanged(self,userInput)
-    CancelSelectionGesture(true)
+    local currentText=self:GetText() or ""
+    local contentChanged=self.__BPMMLastText~=currentText
+    self.__BPMMLastText=currentText
+    -- Some client paths publish OnTextChanged while only moving the native
+    -- cursor/selection. Do not erase an active drag unless the string itself
+    -- actually changed.
+    if contentChanged then CancelSelectionGesture(true) end
+    if contentChanged then ResetVerticalNavigation(self) end
     if type(_G.MegaMacro_TextBox_TextChanged)=="function" then
         _G.MegaMacro_TextBox_TextChanged(self,userInput)
     elseif _G.ScrollingEdit_OnTextChanged then
         ScrollingEdit_OnTextChanged(self,self:GetParent())
     end
     RefreshSyntax(self)
-    MakeNativeInputTransparent(self)
+    ShowSyntaxDisplay(self)
+    if self.__BPMMRefreshCharacterCounter then
+        self:__BPMMRefreshCharacterCounter()
+    end
+    if contentChanged then
+        C_Timer.After(0,function()
+            if self:IsVisible() and self:HasFocus() then
+                PublishNativeCaret(self,self:GetCursorPosition())
+            end
+        end)
+    end
     QueueScrollChildUpdate(self)
 end
 
-local function RestrictDragShellToHeader(frame)
-    local shell=frame and frame.__BPMMShell
+local function KeepWindowShellNonInteractive(frame)
+    local shell=frame and frame.__BetterBindShell
     if not shell then return end
+    shell:EnableMouse(false)
+    if shell.SetMouseClickEnabled then shell:SetMouseClickEnabled(false) end
+    if shell.SetMouseMotionEnabled then shell:SetMouseMotionEnabled(false) end
+end
 
-    shell:ClearAllPoints()
-    shell:SetPoint("TOPLEFT",frame,"TOPLEFT",0,0)
-    shell:SetPoint("TOPRIGHT",frame,"TOPRIGHT",0,0)
-    shell:SetHeight(38)
-    shell:SetFrameLevel(frame:GetFrameLevel()+20)
+local function RetireEditorBlocker(object)
+    if not object then return end
+    object:Hide()
+    if object.EnableMouse then object:EnableMouse(false) end
+    if object.EnableMouseWheel then object:EnableMouseWheel(false) end
+    if object.SetMouseClickEnabled then object:SetMouseClickEnabled(false) end
+    if object.SetMouseMotionEnabled then object:SetMouseMotionEnabled(false) end
+    if object.HookScript and not object.__BPMMRetiredEditorBlocker then
+        object.__BPMMRetiredEditorBlocker=true
+        object:HookScript("OnShow",function(self) self:Hide() end)
+    end
+end
+
+local function DisableEditorBlockers()
+    RetireEditorBlocker(_G.MegaMacro_FrameTextButton)
+    RetireEditorBlocker(_G.MegaMacro_FormattedFrameScrollFrame)
 end
 
 local function AnchorActionButtons(scroll)
@@ -1333,13 +1853,16 @@ local function ConfigureEditor(edit,scroll)
     edit:SetMaxLetters(1023)
     if edit.SetCountInvisibleLetters then edit:SetCountInvisibleLetters(true) end
     if edit.SetBlinkSpeed then edit:SetBlinkSpeed(CARET_BLINK_SECONDS) end
-    edit:SetFontObject("GameFontHighlightSmall")
-    -- The native selection remains functional but its opaque rendering would
-    -- cover the syntax layer. Mirror it with our non-interactive textures.
+    ApplyEditorFont(edit)
+    local textRegion=GetTextRegion(edit)
+    ApplyEditorFont(textRegion)
+    -- The EditBox owns keyboard input and the real selection range. Its glyphs
+    -- remain transparent so the exactly matched syntax surface stays visible
+    -- above the native highlight.
     if edit.SetHighlightColor then
-        edit:SetHighlightColor(HIGHLIGHT[1],HIGHLIGHT[2],HIGHLIGHT[3],0)
+        edit:SetHighlightColor(unpack(HIGHLIGHT))
     end
-    edit:SetTextInsets(7,7,6,6)
+    edit:SetTextInsets(7,7,6,22)
     if edit.SetSpacing then edit:SetSpacing(LINE_SPACING) end
     edit:SetJustifyH("LEFT")
     edit:SetJustifyV("TOP")
@@ -1347,38 +1870,34 @@ local function ConfigureEditor(edit,scroll)
     edit:SetAlpha(1)
     edit:SetFrameStrata(EDITOR_STRATA)
     edit:SetFrameLevel(scroll:GetFrameLevel()+1)
-    edit:EnableMouse(true)
-    edit:EnableMouseWheel(true)
-    EnsureCaret(edit)
+    -- A dedicated transparent proxy owns all mouse gestures. Disabling native
+    -- EditBox mouse input prevents WoW from applying a second cursor/drag
+    -- operation after BetterBind has already established the measured range.
+    edit:EnableMouse(false)
+    if edit.SetMouseClickEnabled then edit:SetMouseClickEnabled(false) end
+    if edit.SetMouseMotionEnabled then edit:SetMouseMotionEnabled(false) end
+    if edit.SetPropagateMouseClicks then
+        edit:SetPropagateMouseClicks(false)
+    end
+    if edit.SetPropagateMouseMotion then
+        edit:SetPropagateMouseMotion(false)
+    end
+    edit:EnableMouseWheel(false)
+    edit.__BPMMLastText=edit:GetText() or ""
     RefreshSyntax(edit)
-    MakeNativeInputTransparent(edit)
+    ShowSyntaxDisplay(edit)
+    EnsureCharacterCounter(edit)
 
-    -- Keep native left-click placement and drag selection. Add exact word
-    -- selection after the native mouse-up, plus right-button drag selection.
-    edit:SetScript("OnMouseDown",function(self,button)
-        if button=="LeftButton" then
-            BeginNativeLeftClick(self)
-        elseif button=="RightButton" then
-            -- Fallback for clients that do deliver right-button events.
-            rightMouseWasDown=true
-            BeginMouseSelection(self,button)
-        end
-    end)
-    edit:SetScript("OnMouseUp",function(self,button)
-        if button=="LeftButton" then
-            CompleteNativeLeftClick(self)
-        else
-            if button=="RightButton" then rightMouseWasDown=false end
-            EndMouseSelection(self,button)
-        end
-    end)
-    edit:SetScript("OnMouseWheel",function(self,delta)
-        ScrollEditor(self,delta)
-    end)
+    edit:SetScript("OnMouseDown",nil)
+    edit:SetScript("OnMouseUp",nil)
+    edit:SetScript("OnMouseWheel",nil)
     edit:SetScript("OnKeyDown",function(self,key)
-        CancelSelectionGesture(true)
         if type(_G.MegaMacro_TextBox_OnKeyDown)=="function" then
             _G.MegaMacro_TextBox_OnKeyDown(self,key)
+        end
+        if not HandleVerticalCaretKey(self,key) then
+            ResetVerticalNavigation(self)
+            QueueKeyboardSelectionRefresh(self,key)
         end
     end)
     edit:SetScript("OnTextChanged",ForwardTextChanged)
@@ -1386,37 +1905,48 @@ local function ConfigureEditor(edit,scroll)
         if _G.ScrollingEdit_OnCursorChanged then
             ScrollingEdit_OnCursorChanged(self,x,y,width,height)
         end
-        PositionCaret(self,x,y,width,height)
-        MirrorNativeLeftSelection(self)
+        local visualX,visualY,_,visualHeight=
+            GetTextPositionGeometry(self,self:GetCursorPosition())
+        PositionCaret(
+            self,x,y,width,height,
+            visualX,visualY,visualHeight
+        )
     end)
     edit:SetScript("OnUpdate",function(self,elapsed)
-        UpdateCaretBlink(self,elapsed)
         if _G.ScrollingEdit_OnUpdate then
             ScrollingEdit_OnUpdate(self,elapsed,self:GetParent())
         end
+        UpdateCaretBlink(self,elapsed)
     end)
     edit:SetScript("OnEscapePressed",function(self) self:ClearFocus() end)
     edit:SetScript("OnEditFocusGained",function(self)
+        HideSelectionHighlights()
+        EnsureCaret(self)
         caret.elapsed=0
         caret.lit=true
+        ShowSyntaxDisplay(self)
         RefreshCaretVisibility(self)
         local frame=_G.MegaMacro_Frame
         if frame then SetEditorBorder(frame.__BPMMGoalEditorBackground,true) end
     end)
-    edit:SetScript("OnEditFocusLost",function()
-        CancelSelectionGesture(true)
+    edit:SetScript("OnEditFocusLost",function(self)
+        ResetVerticalNavigation(self)
+        HideSelectionHighlights()
         HideCaret()
+        RefreshSyntax(self)
+        ShowSyntaxDisplay(self)
         local frame=_G.MegaMacro_Frame
         if frame then SetEditorBorder(frame.__BPMMGoalEditorBackground,false) end
     end)
 
     scroll:SetScrollChild(edit)
-    InstallMousePolling(scroll,edit)
     scroll:EnableMouse(true)
     scroll:EnableMouseWheel(true)
     scroll:SetScript("OnMouseWheel",function(_,delta)
         ScrollEditor(edit,delta)
     end)
+    EnsureMouseProxy(scroll,edit)
+    InstallMousePolling(scroll,edit)
 end
 
 function Editor.Apply()
@@ -1425,7 +1955,8 @@ function Editor.Apply()
     local edit=GetEditor()
     if not frame or not scroll or not edit then return end
 
-    RestrictDragShellToHeader(frame)
+    KeepWindowShellNonInteractive(frame)
+    DisableEditorBlockers()
 
     local configSelected=_G.BetterMacro_GetSelectedTabIndex
         and _G.BetterMacro_GetSelectedTabIndex()==6
@@ -1468,6 +1999,107 @@ function Editor.GetStatus()
     }
 end
 
+local function PrintDebugStatus()
+    local edit=GetEditor()
+    if not edit then
+        DebugLog("STATUS editor=nil")
+        return
+    end
+
+    DebugLog(
+        "STATUS v%s focus=%s enabled=%s visible=%s cursor=%d mouse=%s",
+        Editor.VERSION,tostring(edit:HasFocus()),tostring(edit:IsEnabled()),
+        tostring(edit:IsVisible()),edit:GetCursorPosition() or -1,
+        DebugMouseFocusLabel()
+    )
+    DebugLog(
+        "GESTURE down=%d up=%d updates=%d apply=%d range=%d..%d mirror=%d releaseMissed=%s",
+        debugState.downEvents,debugState.upEvents,debugState.dragUpdates,
+        debugState.applyCalls,selection.anchor or -1,selection.current or -1,
+        CountShownSelectionHighlights(),tostring(debugState.releaseMissed)
+    )
+    local scroll=edit:GetParent()
+    local syntax=edit.__BPMMSyntaxText
+    local maxLines=syntax and syntax.GetMaxLines and syntax:GetMaxLines()
+        or "unavailable"
+    DebugLog(
+        "LAYOUT edit=%.0fx%.0f scroll=%.0fx%.0f syntax=%.0fx%.0f visualLines=%d maxLines=%s bytes=%d",
+        tonumber(edit:GetWidth()) or 0,tonumber(edit:GetHeight()) or 0,
+        scroll and (tonumber(scroll:GetWidth()) or 0) or 0,
+        scroll and (tonumber(scroll:GetHeight()) or 0) or 0,
+        syntax and (tonumber(syntax:GetWidth()) or 0) or 0,
+        syntax and (tonumber(syntax:GetHeight()) or 0) or 0,
+        #BuildVisualLines(edit,edit:GetText() or ""),tostring(maxLines),
+        #(edit:GetText() or "")
+    )
+    local nativeText=GetTextRegion(edit)
+    local measure=EnsureMeasurementText(edit)
+    local _,editSize=edit:GetFont()
+    local nativeSize
+    if nativeText then _,nativeSize=nativeText:GetFont() end
+    local syntaxSize
+    if syntax then _,syntaxSize=syntax:GetFont() end
+    local _,measureSize=measure:GetFont()
+    local proxy=scroll and scroll.__BPMMEditorMouseProxy
+    DebugLog(
+        "METRICS font edit=%.1f native=%.1f syntax=%.1f measure=%.1f advance=%.2f scale edit=%.3f syntax=%.3f measure=%.3f proxy=%s proxyMouse=%s",
+        tonumber(editSize) or -1,tonumber(nativeSize) or -1,
+        tonumber(syntaxSize) or -1,tonumber(measureSize) or -1,
+        GetEditorLineHeight(edit),
+        tonumber(edit:GetEffectiveScale()) or -1,
+        syntax and (tonumber(syntax:GetEffectiveScale()) or -1) or -1,
+        tonumber(measure:GetEffectiveScale()) or -1,
+        DebugFrameLabel(proxy),
+        tostring(proxy and proxy:IsMouseEnabled() or false)
+    )
+    DebugLog(
+        "CARET focus=%s positioned=%s lit=%s elapsed=%.2f native=(%.1f,%.1f %.1fx%.1f) measuredX=%.1f visual=(%.1f,%.1f x%.1f) scale=%.3f lineShown=%s",
+        tostring(edit:HasFocus()),tostring(caret.positioned),tostring(caret.lit),
+        tonumber(caret.elapsed) or 0,tonumber(caret.x) or -1,
+        tonumber(caret.y) or -1,tonumber(caret.width) or -1,
+        tonumber(caret.height) or -1,
+        tonumber(caret.measuredX) or -1,
+        tonumber(caret.lineX) or -1,tonumber(caret.lineY) or -1,
+        tonumber(caret.lineHeight) or -1,
+        tonumber(caret.effectiveScale) or -1,
+        tostring(caret.line and caret.line:IsShown() or false)
+    )
+end
+
+SLASH_BETTERBIND_EDITOR_DEBUG1="/bbedebug"
+SlashCmdList.BETTERBIND_EDITOR_DEBUG=function(message)
+    local command=string.lower(Trim(message))
+    if command=="off" then
+        if debugState.enabled then
+            DebugLog("diagnostics disabled")
+        end
+        debugState.enabled=false
+        return
+    end
+
+    if command=="on" or command=="" then
+        debugState.enabled=true
+        ResetDebugGesture()
+        DebugLog(
+            "diagnostics enabled (editor v%s); drag once, then run /bbedebug status",
+            Editor.VERSION
+        )
+        return
+    end
+
+    if command=="status" then
+        if not debugState.enabled then
+            debugState.enabled=true
+            DebugLog("diagnostics enabled for status")
+        end
+        PrintDebugStatus()
+        return
+    end
+
+    debugState.enabled=true
+    DebugLog("usage: /bbedebug on | status | off")
+end
+
 function Editor.FormatMacroText(source)
     return FormatMacroText(source or "")
 end
@@ -1487,13 +2119,19 @@ events:SetScript("OnEvent",function(_,eventName,eventValue)
         C_Timer.After(.5,Editor.Apply)
         C_Timer.After(1.4,Editor.Apply)
     elseif eventName=="GET_ITEM_INFO_RECEIVED" then
-        requestedItemData[tonumber(eventValue) or eventValue]=nil
         local edit=GetEditor()
-        if edit and edit:IsVisible() then RefreshSyntax(edit) end
+        if edit and edit:IsVisible() then
+            C_Timer.After(0,function()
+                if edit:IsVisible() then RefreshSyntax(edit) end
+            end)
+        end
     elseif eventName=="SPELL_DATA_LOAD_RESULT" then
-        requestedSpellData[tonumber(eventValue) or eventValue]=nil
         local edit=GetEditor()
-        if edit and edit:IsVisible() then RefreshSyntax(edit) end
+        if edit and edit:IsVisible() then
+            C_Timer.After(0,function()
+                if edit:IsVisible() then RefreshSyntax(edit) end
+            end)
+        end
     end
 end)
 

@@ -191,18 +191,18 @@ local function RenderSlot(button)
             button.hotkey:SetText("")
         end
 
-        if slot.type == TYPE_BINDPAD_MACRO then
-            button.border:SetVertexColor(0, 1, 0, .35)
-            button.border:Show()
-        else
-            button.border:Hide()
-        end
+        -- The legacy BindPad macro marker is the green action-button glow.
+        -- BetterBind's shared cell skin already communicates every slot state,
+        -- so this Blizzard-only layer must remain retired for all slot types.
+        button.border:Hide()
+        button.border:SetAlpha(0)
     else
         button.icon:Hide()
         button.addbutton:Hide()
         button.name:SetText("")
         button.hotkey:SetText("")
         button.border:Hide()
+        button.border:SetAlpha(0)
     end
 
     if button == BindPadCore.selectedSlotButton then

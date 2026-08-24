@@ -23,8 +23,6 @@
 				</FontString>
 			</Layer>
 		</Layers>
-		<HighlightTexture alphaMode="ADD" file="Interface\Buttons\ButtonHilight-Square"/>
-		<CheckedTexture alphaMode="ADD" file="Interface\Buttons\CheckButtonHilight"/>
 	</CheckButton>
 	<CheckButton name="MegaMacro_PopupButtonTemplate" inherits="SimplePopupButtonTemplate" virtual="true">
 		<Scripts>
@@ -38,8 +36,6 @@
 				<Anchor point="CENTER" x="0" y="0"/>
 			</Anchors>
 		</NormalTexture>
-		<HighlightTexture alphaMode="ADD" file="Interface\Buttons\ButtonHilight-Square"/>
-		<CheckedTexture alphaMode="ADD" file="Interface\Buttons\CheckButtonHilight"/>
 	</CheckButton>
 	<Frame name="MegaMacro_Frame" toplevel="true" movable="true" parent="UIParent" enableMouse="true" hidden="true" inherits="ButtonFrameTemplate">
 		<Size x="722" y="696"/>
@@ -53,7 +49,6 @@
 		</Attributes>
 		<Scripts>
 			<OnLoad>
-				self:RegisterForDrag("LeftButton");
 				MegaMacro_Window_OnLoad();
 			</OnLoad>
 			<OnDragStart>
@@ -353,15 +348,6 @@
 						PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON);
 						StaticPopup_Show("CONFIRM_DELETE_SELECTED_MEGA_MACRO");
 					</OnClick>
-				</Scripts>
-			</Button>
-			<Button name="MegaMacro_ExitButton" inherits="UIPanelButtonTemplate" text="EXIT">
-				<Size x="80" y="22"/>
-				<Anchors>
-					<Anchor point="BOTTOMRIGHT" x="-5" y="4"/>
-				</Anchors>
-				<Scripts>
-					<OnClick function="HideParentPanel"/>
 				</Scripts>
 			</Button>
 		</Frames>

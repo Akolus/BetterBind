@@ -601,12 +601,10 @@ function BindPadSlot_UpdateState(self)
             self.hotkey:SetText("")
         end
 
-        if TYPE_BPMACRO == padSlot.type then
-            self.border:SetVertexColor(0, 1.0, 0, 0.35)
-            self.border:Show()
-        else
-            self.border:Hide()
-        end
+        -- BetterBind uses the shared neutral Cooldown Manager edge. Retire the
+        -- original green BindPad-macro action-button glow at its source.
+        self.border:Hide()
+        self.border:SetAlpha(0)
     else
         self.icon:Hide()
         -- BetterBind no longer exposes the private BindPad-macro creator.
@@ -614,6 +612,7 @@ function BindPadSlot_UpdateState(self)
         self.name:SetText("")
         self.hotkey:SetText("")
         self.border:Hide()
+        self.border:SetAlpha(0)
     end
 end
 

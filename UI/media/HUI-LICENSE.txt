@@ -1,0 +1,17 @@
+CUSTOM LICENSE FOR: ActionBarsEnhanced
+Copyright (c) 2026 Hndrxuprt
+
+This AddOn is provided as free software. You are granted the following rights:
+
+1. You may use this AddOn for personal purposes. You may distribute unmodified copies of this AddOn, including in UI compilations,
+   provided that all copyright notices and this license text are retained.
+
+2. You may modify the AddOn for personal use only. You are NOT permitted to distribute, publish, or share modified versions
+   (forks) of this AddOn without explicit written permission from the author.
+
+3. You may NOT sell, resell, or charge for access to this AddOn or any derivative works.
+   You may NOT include this AddOn in commercial packages without permission.
+
+4. You may not remove or alter any copyright notices or author credits in the files.
+
+DISCLAIMER: THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.

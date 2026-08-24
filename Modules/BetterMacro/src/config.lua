@@ -23,42 +23,40 @@ function MegaMacro_InitialiseConfig()
 MegaMacroConfig.UseNativeActionBar = true
 
     local defaults = {
-        bindpad = { style = "crop", zoom = 0, spacing = 11 },
-        profiles = { style = "crop", zoom = 0, spacing = 12 },
-        bettermacro = { style = "crop", zoom = 0, spacing = 7 },
-        browser = { style = "crop", zoom = 0, spacing = 4 },
+        bindpad = 11,
+        profiles = 12,
+        bettermacro = 7,
+        browser = 4,
     }
 
     MegaMacroConfig.Appearance = type(MegaMacroConfig.Appearance) == "table"
         and MegaMacroConfig.Appearance or {}
 
-    for group, values in pairs(defaults) do
+    for group, defaultSpacing in pairs(defaults) do
         local saved = MegaMacroConfig.Appearance[group]
         if type(saved) ~= "table" then
             saved = {}
             MegaMacroConfig.Appearance[group] = saved
         end
 
-        if saved.style ~= "full" and saved.style ~= "crop" and saved.style ~= "rounded" then
-            saved.style = values.style
-        end
-        saved.zoom = tonumber(saved.zoom) or values.zoom
-        saved.spacing = tonumber(saved.spacing) or values.spacing
+        -- Retain old style/zoom keys in SavedVariables for compatibility, but
+        -- the fixed HUI visual preset now exposes spacing only.
+        saved.spacing = tonumber(saved.spacing) or defaultSpacing
     end
 end
 
 local appearanceDefaults = {
-    bindpad = { style = "crop", zoom = 0, spacing = 11 },
-    profiles = { style = "crop", zoom = 0, spacing = 12 },
-    bettermacro = { style = "crop", zoom = 0, spacing = 7 },
-    browser = { style = "crop", zoom = 0, spacing = 4 },
+    bindpad = { spacing = 11 },
+    profiles = { spacing = 12 },
+    bettermacro = { spacing = 7 },
+    browser = { spacing = 4 },
 }
 
 local appearanceLimits = {
-    bindpad = { zoom = 40, spacing = 11 },
-    profiles = { zoom = 40, spacing = 18 },
-    bettermacro = { zoom = 40, spacing = 9 },
-    browser = { zoom = 40, spacing = 8 },
+    bindpad = { spacing = 11 },
+    profiles = { spacing = 18 },
+    bettermacro = { spacing = 9 },
+    browser = { spacing = 8 },
 }
 
 local function Clamp(value, minimum, maximum)
@@ -73,13 +71,7 @@ function BetterBindAppearance_Get(group)
     local defaults = appearanceDefaults[group] or appearanceDefaults.bindpad
     local limits = appearanceLimits[group] or appearanceLimits.bindpad
     local saved = MegaMacroConfig.Appearance[group] or {}
-    local style = saved.style
-    if style ~= "full" and style ~= "crop" and style ~= "rounded" then
-        style = defaults.style
-    end
     return {
-        style = style,
-        zoom = Clamp(saved.zoom, 0, limits.zoom),
         spacing = Clamp(saved.spacing, 0, limits.spacing),
     }
 end
@@ -88,13 +80,7 @@ function BetterBindAppearance_Set(group, key, value)
     if not appearanceDefaults[group] then return false end
     MegaMacro_InitialiseConfig()
 
-    if key == "style" then
-        if value ~= "full" and value ~= "crop" and value ~= "rounded" then
-            return false
-        end
-    elseif key == "zoom" then
-        value = Clamp(value, 0, appearanceLimits[group].zoom)
-    elseif key == "spacing" then
+    if key == "spacing" then
         value = Clamp(value, 0, appearanceLimits[group].spacing)
     else
         return false

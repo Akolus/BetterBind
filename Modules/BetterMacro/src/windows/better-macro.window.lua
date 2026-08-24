@@ -64,7 +64,23 @@ end
 local function GetMacroButtonUI(index)
 	local button = _G["MegaMacro_MacroButton" .. index]
 	if not button then return nil, nil, nil end
-	return button, button.Name or _G[button:GetName() .. "Name"], button.Icon or _G[button:GetName() .. "Icon"]
+	local name = button.Name or _G[button:GetName() .. "Name"]
+	local icon = button.Icon or _G[button:GetName() .. "Icon"]
+	-- Normalize template globals into parent keys for the consolidated layout
+	-- and appearance refreshers, including buttons allocated after login.
+	if name and not button.Name then button.Name = name end
+	if icon and not button.Icon then button.Icon = icon end
+	return button, name, icon
+end
+
+local function ApplyMacroButtonAppearance(button, icon)
+	if not button or not icon then return end
+	if type(_G.BetterBindAppearance_ApplyTexture) == "function" then
+		_G.BetterBindAppearance_ApplyTexture(button, icon, "bettermacro")
+	end
+	if type(_G.BetterBindAppearance_StyleCell) == "function" then
+		_G.BetterBindAppearance_StyleCell(button, icon, true)
+	end
 end
 
 local function AnchorMacroButton(button, index)
@@ -88,7 +104,22 @@ local function EnsureMacroSlotFrames(count)
 			MegaMacro_ButtonContainer, "MegaMacro_ButtonTemplate"
 		)
 		button:SetID(index)
+		-- XML inheritance normally supplies these scripts. Set them explicitly
+		-- for lazily-created pages as well so a newly revealed slot is fully
+		-- interactive on every supported client.
+		button:RegisterForDrag("LeftButton")
+		button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+		button:SetScript("OnClick", function(self, mouseButton)
+			MegaMacro_MacroButton_OnClick(self, mouseButton)
+		end)
+		button:SetScript("OnEnter", MegaMacro_MacroButton_OnEnter)
+		button:SetScript("OnLeave", MegaMacro_MacroButton_OnLeave)
+		button:SetScript("OnDragStart", MegaMacro_MacroButton_OnDragStart)
+		button:SetScript("OnDragStop", MegaMacro_MacroButton_OnDragStop)
+		button:SetScript("OnReceiveDrag", MegaMacro_MacroButton_OnReceiveDrag)
 		AnchorMacroButton(button, index)
+		local _, _, icon = GetMacroButtonUI(index)
+		ApplyMacroButtonAppearance(button, icon)
 		State.createdSlotCount = index
 	end
 end
@@ -139,6 +170,7 @@ local function SetButtonEmpty(button, name, icon)
 	icon:SetDesaturated(false)
 	icon:SetTexCoord(0, 1, 0, 1)
 	icon:SetAlpha(1)
+	ApplyMacroButtonAppearance(button, icon)
 end
 
 local function SetButtonNew(button, name, icon)
@@ -150,6 +182,7 @@ local function SetButtonNew(button, name, icon)
 	icon:SetDesaturated(true)
 	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 	icon:SetAlpha(0.5)
+	ApplyMacroButtonAppearance(button, icon)
 end
 
 local function SetButtonMacro(button, name, icon, macro)
@@ -167,12 +200,46 @@ local function SetButtonMacro(button, name, icon, macro)
 		icon:SetAlpha(0.5)
 		icon:SetDesaturated(true)
 	end
+	ApplyMacroButtonAppearance(button, icon)
+end
+
+local function RemoveTrailingEllipsisLine(code)
+	code = tostring(code or "")
+	if code == "..." then return "" end
+	code = code:gsub("\r\n%.%.%.$", "")
+	code = code:gsub("\n%.%.%.$", "")
+
+	-- Older competing native/custom drag handlers could copy the tail of the
+	-- preceding command onto a new final line (for example Drums -> ums).
+	-- Remove only a short standalone alphabetic suffix after a slash/directive
+	-- line; ordinary valid macro commands and comments are never touched.
+	local newline = code:match(".*()\n")
+	if newline then
+		local fragment = code:sub(newline + 1)
+		local previousText = code:sub(1, newline - 1):gsub("\r$", "")
+		local previousLine = previousText:match("([^\n]*)$") or ""
+		local previousWord = previousLine:match("([%a]+)%s*$")
+		if #fragment > 0 and #fragment <= 4
+			and fragment:match("^[%a]+$")
+			and previousLine:match("^%s*[/#]")
+			and previousWord and #fragment < #previousWord
+			and previousWord:sub(-#fragment):lower() == fragment:lower()
+		then
+			return previousText
+		end
+	end
+	return code
 end
 
 local function SaveMacro()
 	local macro = State.selectedMacro
 	if macro and MegaMacro_FrameText then
-		local code = MegaMacro_FrameText:GetText() or ""
+		local current = MegaMacro_FrameText:GetText() or ""
+		local code = RemoveTrailingEllipsisLine(current)
+		if code ~= current then
+			MegaMacro_FrameText:SetText(code)
+			MegaMacro_FrameText:SetCursorPosition(#code)
+		end
 		if macro.Code ~= code then MegaMacro.UpdateCode(macro, code) end
 	end
 	SetEnabled(MegaMacro_SaveButton, false)
@@ -238,7 +305,9 @@ local function SelectMacro(macro, skipSave)
 		State.selectedButton = button
 		if button then button:SetChecked(true) end
 		MegaMacro_FrameSelectedMacroName:SetText(macro.DisplayName or "")
-		MegaMacro_FrameText:SetText(macro.Code or "")
+		local code = RemoveTrailingEllipsisLine(macro.Code)
+		if code ~= (macro.Code or "") then MegaMacro.UpdateCode(macro, code) end
+		MegaMacro_FrameText:SetText(code)
 		MegaMacro_FrameText:Enable()
 		SetEnabled(MegaMacro_EditButton, true)
 		SetEnabled(MegaMacro_DeleteButton, true)
@@ -602,10 +671,15 @@ function BetterMacro_AdjustVisibleSlots(direction)
 	if _G.BPMMGoalLayout and _G.BPMMGoalLayout.ApplyMegaMacroGrid then
 		_G.BPMMGoalLayout.ApplyMegaMacroGrid()
 	end
-	-- Stage 8 owns the custom cell border. Apply it to frames that were just
-	-- created for this page so lazy allocation never exposes Blizzard chrome.
-	if _G.BPMM84 and type(_G.BPMM84.Apply) == "function" and C_Timer then
-		C_Timer.After(0, _G.BPMM84.Apply)
+	if type(_G.BetterBindAppearance_RefreshBetterMacroCells) == "function" then
+		_G.BetterBindAppearance_RefreshBetterMacroCells()
+	end
+	if C_Timer then
+		C_Timer.After(0, function()
+			if type(_G.BetterBindAppearance_RefreshBetterMacroCells) == "function" then
+				_G.BetterBindAppearance_RefreshBetterMacroCells()
+			end
+		end)
 	end
 	return true
 end
@@ -778,7 +852,11 @@ end
 
 function MegaMacro_CancelButton_OnClick()
 	PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
-	if State.selectedMacro then MegaMacro_FrameText:SetText(State.selectedMacro.Code or "") end
+	if State.selectedMacro then
+		MegaMacro_FrameText:SetText(
+			RemoveTrailingEllipsisLine(State.selectedMacro.Code)
+		)
+	end
 	MegaMacro_FrameText:ClearFocus()
 	SetEnabled(MegaMacro_CancelButton, false)
 end
