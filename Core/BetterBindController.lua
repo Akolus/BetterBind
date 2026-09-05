@@ -205,6 +205,12 @@ local function RenderSlot(button)
         button.border:SetAlpha(0)
     end
 
+    -- RenderSlot is also called directly by tab switches and drag updates,
+    -- bypassing the public UpdateState hook. Refresh the skin after the icon.
+    if _G.BetterBindAppearance_StyleCell then
+        BetterBindAppearance_StyleCell(button, button.icon, false, nil)
+    end
+
     if button == BindPadCore.selectedSlotButton then
         UpdateDeleteButton()
     end

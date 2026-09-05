@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.65 — 2026-08-24
+
+- Makes a normal left-click on a populated BetterBind icon both open its
+  keybind window and visibly select that icon.
+- Connects BetterBind's existing internal `selectedSlotButton` state to the
+  shared purple selected-cell texture, without changing binding or slot data.
+- Refreshes both the previously selected icon and the newly selected icon, and
+  clears the visual selection when switching BetterBind tabs or profiles.
+- Preserves Shift+drag, cursor drops, right-click editing, icon-name styling,
+  and all BetterMacro editor behavior.
+
 ## 1.0.64 — 2026-08-24
 
 - Improves BetterBind and BetterMacro icon-name readability with fully opaque

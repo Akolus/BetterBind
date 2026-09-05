@@ -666,7 +666,15 @@ local function InstallBindPadRightClickBridge()
             end
         end
 
-        return originalBindPadSlotOnClick(self, button, down)
+        local result=originalBindPadSlotOnClick(self, button, down)
+        if button=="LeftButton"
+            and BindPadCore.selectedSlotButton==self
+            and _G.BindPadBindFrame and BindPadBindFrame:IsShown()
+            and type(_G.BetterBindAppearance_SelectBindPadCell)=="function"
+        then
+            BetterBindAppearance_SelectBindPadCell(self)
+        end
+        return result
     end
 
     BPMM71.rightClickInstalled = true
@@ -1537,6 +1545,7 @@ local C={
     border={1,1,1,1},
     blue={.050,.565,.905,1},
 }
+local selectedBindPadCell=nil
 
 local function UpdateCellVisualGeometry(button)
     local visual=button and button.__BetterBindCellVisual
@@ -1611,8 +1620,12 @@ local function RefreshCellVisual(button,isHover)
     else
         visual.background:SetVertexColor(unpack(isHover and C.backgroundHover or C.background))
     end
-    local selected=button.__BetterBindCellSelectable
-        and button.GetChecked and button:GetChecked()
+    local selected=button.__BetterBindBindPadSlot
+        and selectedBindPadCell==button
+    if not selected then
+        selected=button.__BetterBindCellSelectable
+            and button.GetChecked and button:GetChecked()
+    end
     local edge=isHover and C.blue
         or button.__BetterBindCellAccent
         or C.border
@@ -1652,11 +1665,34 @@ local function StyleCell(button,icon,isSelectable,accent)
     RefreshCellVisual(button,false)
 end
 
+local function IsCellHovered(button)
+    return button and button.IsMouseOver and button:IsMouseOver() or false
+end
+
+local function SelectBindPadCell(button)
+    if not button then return end
+    local previous=selectedBindPadCell
+    selectedBindPadCell=button
+    if previous and previous~=button then
+        RefreshCellVisual(previous,IsCellHovered(previous))
+    end
+    RefreshCellVisual(button,IsCellHovered(button))
+end
+
+local function ClearBindPadCellSelection()
+    local previous=selectedBindPadCell
+    selectedBindPadCell=nil
+    if previous then
+        RefreshCellVisual(previous,IsCellHovered(previous))
+    end
+end
+
 local function StyleBindPadSlot(button)
     if button and button.border then
         button.border:SetAlpha(0)
         button.border:Hide()
     end
+    if button then button.__BetterBindBindPadSlot=true end
     StyleCell(button,button and button.icon,false,nil)
 end
 
@@ -1665,6 +1701,8 @@ local function StyleBetterMacroCell(button)
 end
 
 _G.BetterBindAppearance_StyleCell=StyleCell
+_G.BetterBindAppearance_SelectBindPadCell=SelectBindPadCell
+_G.BetterBindAppearance_ClearBindPadCellSelection=ClearBindPadCellSelection
 
 local function RefreshBindPadCells()
     for index=1,250 do
@@ -1706,7 +1744,13 @@ if type(_G.MegaMacro_FrameTab_OnClick)=="function" then
     hooksecurefunc("MegaMacro_FrameTab_OnClick",RefreshBetterMacroCells)
 end
 if type(_G.BindPadProfileTab_OnClick)=="function" then
-    hooksecurefunc("BindPadProfileTab_OnClick",RefreshProfileCells)
+    hooksecurefunc("BindPadProfileTab_OnClick",function()
+        ClearBindPadCellSelection()
+        RefreshProfileCells()
+    end)
+end
+if type(_G.BindPadFrameTab_OnClick)=="function" then
+    hooksecurefunc("BindPadFrameTab_OnClick",ClearBindPadCellSelection)
 end
 if _G.BindPadFrame then
     BindPadFrame:HookScript("OnShow",function()
@@ -2269,13 +2313,27 @@ local function StyleUtilityToggle(button)
     end
 end
 
+local PROFILE_NUMERALS={"I","II","III","IV","V"}
+
+local function RefreshCurrentProfileLabel(button)
+    local label=button.__BPMMGoalCurrentLabel
+    if label then
+        label:SetShown(button:IsShown()
+            and BindPadCore.GetCurrentProfileNum()==button:GetID())
+    end
+end
+
+if type(_G.BindPadProfileTab_OnShow)=="function" then
+    hooksecurefunc("BindPadProfileTab_OnShow",RefreshCurrentProfileLabel)
+end
+
 local function EnsureProfileLabel(panel,button,index)
     local label=button.__BPMMGoalLabel
     if not label then
         label=panel:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
         button.__BPMMGoalLabel=label
     end
-    label:SetText("Profile "..index)
+    label:SetText(PROFILE_NUMERALS[index])
     label:SetTextColor(unpack(C.text))
     label:SetWidth(46)
     label:SetJustifyH("CENTER")
@@ -2393,14 +2451,14 @@ local function LayoutBindPadLower()
     local showProfiles=not BindPadVars.BPMMSettings
         or BindPadVars.BPMMSettings.showProfileRow~=false
     local profileAppearance=GetAppearance("profiles",12)
-    local profileStep=38+profileAppearance.spacing
+    local profileStep=38+profileAppearance.spacing+5
     for i=1,5 do
         local button=_G["BindPadProfileTab"..i]
         if button then
             button:SetShown(showProfiles)
             button:SetSize(38,38)
             button:ClearAllPoints()
-            button:SetPoint("TOPLEFT",panel,"TOPLEFT",10+(i-1)*profileStep,-38)
+            button:SetPoint("TOPLEFT",panel,"TOPLEFT",10+(i-1)*profileStep,-50)
             local oldBG=_G["BindPadProfileTab"..i.."Background"]
             if oldBG then oldBG:SetAlpha(0) end
             if showProfiles and BindPadProfileTab_OnShow then
@@ -2420,8 +2478,22 @@ local function LayoutBindPadLower()
             end
             local label=EnsureProfileLabel(panel,button,i)
             label:ClearAllPoints()
-            label:SetPoint("TOP",button,"BOTTOM",0,-5)
+            label:SetPoint("BOTTOM",button,"TOP",0,3)
             label:SetShown(showProfiles)
+
+            local current=button.__BPMMGoalCurrentLabel
+            if not current then
+                current=button:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+                button.__BPMMGoalCurrentLabel=current
+            end
+            current:SetText("Current")
+            current:SetTextColor(unpack(C.text))
+            current:SetWidth(46)
+            current:SetJustifyH("CENTER")
+            SetFontSize(current,9)
+            current:ClearAllPoints()
+            current:SetPoint("TOP",button,"BOTTOM",0,-3)
+            RefreshCurrentProfileLabel(button)
         end
     end
 

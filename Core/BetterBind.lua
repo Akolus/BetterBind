@@ -1834,9 +1834,9 @@ function BindPadCore.DoSaveAllKeys()
     end
     if BindPadVars.GeneralKeyBindings == nil then
         BindPadVars.GeneralKeyBindings = {}
-    else
-        table.wipe(BindPadVars.GeneralKeyBindings)
     end
+    -- Shared bindings are account data, not a snapshot of this character.
+    -- A new character may not have applied them yet; never erase them here.
 
     for i = 1, GetNumBindings() do
         local command, category, key1, key2 = GetBinding(i)
@@ -1848,8 +1848,7 @@ function BindPadCore.DoSaveAllKeys()
         end
     end
     for padSlot in BindPadCore.AllSlotInfoIter() do
-        local key = GetBindingKey(padSlot.action)
-        if key then
+        for _, key in ipairs({ GetBindingKey(padSlot.action) }) do
             profile.AllKeyBindings[key] = padSlot.action
             if padSlot.isForAllCharacters then
                 BindPadVars.GeneralKeyBindings[key] = padSlot.action
@@ -1869,20 +1868,13 @@ function BindPadCore.DoRestoreAllKeys()
         BindPadVars.GeneralKeyBindings = {}
     end
 
-    local count = 0
-    for k, v in pairs(profile.AllKeyBindings) do
-        count = count + 1
-    end
-
-    if count < 10 then
-        BindPadFrame_OutputText("DEBUG: Something wrong. profile.AllKeyBindings is most likely broken.")
-        return
-    end
-
     BindPadCore.ChangingKeyBindings = true
 
     -- Override GeneralKeyBindings over all profiles.
     for k, v in pairs(BindPadVars.GeneralKeyBindings) do
+        -- New profiles have no version marker yet, so CarryOverKeybinding
+        -- alone skips them. Always seed the profile being restored directly.
+        profile.AllKeyBindings[k] = v
         BindPadCore.CarryOverKeybinding(k, v)
     end
 
@@ -1927,7 +1919,8 @@ function BindPadCore.DoRestoreAllKeys()
     end
 
     for k, v in pairs(profile.AllKeyBindings) do
-        if BindPadVars.saveAllKeysFlag or strfind(v, "^CLICK BindPad") then
+        if BindPadVars.saveAllKeysFlag or strfind(v, "^CLICK BindPad")
+            or BindPadVars.GeneralKeyBindings[k] == v then
             local key1, key2 = GetBindingKey(v)
             if key1 ~= k and key2 ~= k then
                 BindPadCore.InnerSetBinding(k, v)
@@ -2434,11 +2427,19 @@ function BindPadFrame_ForAllCharactersToggle(self)
     local padSlot = BindPadCore.selectedSlot
     padSlot.isForAllCharacters = (not not self:GetChecked())
 
-    local key = GetBindingKey(padSlot.action)
-    if key then
-        -- Re-bind same existing keybinding to update BindPadVars.GeneralKeyBindings.
+    BindPadVars.GeneralKeyBindings = BindPadVars.GeneralKeyBindings or {}
+    -- Explicit opt-out removes persisted shared keys even when this character
+    -- currently has a different local binding for them.
+    for key, action in pairs(BindPadVars.GeneralKeyBindings) do
+        if action == padSlot.action then
+            BindPadVars.GeneralKeyBindings[key] = nil
+        end
+    end
+    local keys = { GetBindingKey(padSlot.action) }
+    for _, key in ipairs(keys) do
         BindPadCore.ManuallySetBinding(key, padSlot.action)
     end
+    BindPadCore.SaveBindings(GetCurrentBindingSet())
 end
 
 function BindPadCore.GetBindingKeyFromAction(action)
